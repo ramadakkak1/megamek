@@ -1621,57 +1621,13 @@ public class GameManager implements IGameManager {
         }
     }
 
-    private static class BVCountHelper {
-        int bv;
-        int bvInitial;
-        int bvFled;
-        int unitsCount;
-        int unitsInitialCount;
-        int unitsLightDamageCount;
-        int unitsModerateDamageCount;
-        int unitsHeavyDamageCount;
-        int unitsCrippledCount;
-        int unitsDestroyedCount;
-        int unitsCrewEjectedCount;
-        int unitsCrewTrappedCount;
-        int unitsCrewKilledCount;
-        int unitsFledCount;
-        int ejectedCrewActiveCount;
-        int ejectedCrewPickedUpByTeamCount;
-        int ejectedCrewPickedUpByEnemyTeamCount;
-        int ejectedCrewKilledCount;
-        int ejectedCrewFledCount;
-
-        public BVCountHelper() {
-            this.bv = 0;
-            this.bvInitial = 0;
-            this.bvFled = 0;
-            this.unitsCount = 0;
-            this.unitsInitialCount = 0;
-            this.unitsLightDamageCount = 0;
-            this.unitsModerateDamageCount = 0;
-            this.unitsHeavyDamageCount = 0;
-            this.unitsCrippledCount = 0;
-            this.unitsDestroyedCount = 0;
-            this.unitsCrewEjectedCount = 0;
-            this.unitsCrewTrappedCount = 0;
-            this.unitsCrewKilledCount = 0;
-            this.unitsFledCount = 0;
-            this.ejectedCrewActiveCount = 0;
-            this.ejectedCrewPickedUpByTeamCount = 0;
-            this.ejectedCrewPickedUpByEnemyTeamCount = 0;
-            this.ejectedCrewKilledCount = 0;
-            this.ejectedCrewFledCount = 0;
-        }
-    }
-
     private void bvReports(boolean checkBlind) {
         List<Report> playerReport = new ArrayList<>();
         List<Report> teamReport = new ArrayList<>();
-        HashMap<Integer, BVCountHelper> teamsInfo = new HashMap<>();
+        HashMap<Integer, BVManager.BVCountHelper> teamsInfo = new HashMap<>();
 
         for (Team team : game.getTeams()) {
-            teamsInfo.put(team.getId(), new BVCountHelper());
+            teamsInfo.put(team.getId(), new BVManager.BVCountHelper());
         }
 
         // blank line
@@ -1684,7 +1640,7 @@ public class GameManager implements IGameManager {
                 continue;
             }
 
-            BVCountHelper bvcPlayer = new BVCountHelper();
+            BVManager.BVCountHelper bvcPlayer = new BVManager.BVCountHelper();
             bvcPlayer.bv = player.getBV();
             bvcPlayer.bvInitial = player.getInitialBV();
             bvcPlayer.bvFled = ServerReportsHelper.getFledBV(player, game);
@@ -1710,7 +1666,7 @@ public class GameManager implements IGameManager {
             int playerTeam = player.getTeam();
 
             if ((playerTeam != Player.TEAM_UNASSIGNED) && (playerTeam != Player.TEAM_NONE)) {
-                BVCountHelper bvcTeam = teamsInfo.get(playerTeam);
+                BVManager.BVCountHelper bvcTeam = teamsInfo.get(playerTeam);
                 bvcTeam.bv += bvcPlayer.bv;
                 bvcTeam.bvInitial += bvcPlayer.bvInitial;
                 bvcTeam.bvFled += bvcPlayer.bvFled;
@@ -1735,8 +1691,8 @@ public class GameManager implements IGameManager {
 
         // Show teams BVs
         if (!(checkBlind && doBlind() && suppressBlindBV())) {
-            for (Map.Entry<Integer, BVCountHelper> e : teamsInfo.entrySet()) {
-                BVCountHelper bvc = e.getValue();
+            for (Map.Entry<Integer, BVManager.BVCountHelper> e : teamsInfo.entrySet()) {
+                BVManager.BVCountHelper bvc = e.getValue();
                 teamReport.addAll(bvReport(Player.TEAM_NAMES[e.getKey()], Player.PLAYER_NONE, bvc, false));
             }
         }
@@ -1745,7 +1701,7 @@ public class GameManager implements IGameManager {
         vPhaseReport.addAll(playerReport);
     }
 
-    private List<Report> bvReport(String name, int playerID, BVCountHelper bvc, boolean checkBlind) {
+    private List<Report> bvReport(String name, int playerID, BVManager.BVCountHelper bvc, boolean checkBlind) {
         List<Report> result = new ArrayList<>();
 
         Report r = new Report(7016, Report.PUBLIC);
