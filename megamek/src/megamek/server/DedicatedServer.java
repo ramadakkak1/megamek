@@ -19,6 +19,8 @@ import megamek.common.commandline.MegaMekCommandLineFlag;
 import megamek.common.preference.PreferenceManager;
 import megamek.common.util.EmailService;
 import org.apache.logging.log4j.LogManager;
+import megamek.server.manager.GameManager;
+
 
 import java.io.File;
 import java.io.FileReader;

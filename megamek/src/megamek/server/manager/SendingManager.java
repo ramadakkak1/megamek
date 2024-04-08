@@ -1,7 +1,8 @@
-package megamek.server;
+package megamek.server.manager;
 
 import megamek.common.Player;
 import megamek.common.net.packets.Packet;
+import megamek.server.Server;
 
 public class SendingManager {
     public SendingManager() {

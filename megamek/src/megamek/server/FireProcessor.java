@@ -21,6 +21,7 @@ import megamek.common.options.OptionsConstants;
 import megamek.common.planetaryconditions.PlanetaryConditions;
 import megamek.common.planetaryconditions.Wind;
 import megamek.common.planetaryconditions.WindDirection;
+import megamek.server.manager.GameManager;
 import org.apache.logging.log4j.LogManager;
 
 import java.util.*;
@@ -28,7 +29,7 @@ import java.util.*;
 import static java.util.stream.Collectors.toList;
 public class FireProcessor extends DynamicTerrainProcessor {
 
-    private Game game;
+    public Game game;
     Vector<Report> vPhaseReport;
 
     public FireProcessor(GameManager gameManager) {
@@ -36,7 +37,7 @@ public class FireProcessor extends DynamicTerrainProcessor {
     }
 
     @Override
-    void doEndPhaseChanges(Vector<Report> vPhaseReport) {
+    public void doEndPhaseChanges(Vector<Report> vPhaseReport) {
         game = gameManager.getGame();
         this.vPhaseReport = vPhaseReport;
         removeSmokeTerrainFromHexes();

@@ -18,6 +18,7 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Vector;
+import megamek.server.manager.GameManager;
 
 import megamek.common.*;
 
@@ -34,7 +35,7 @@ public class ElevatorProcessor extends DynamicTerrainProcessor {
     }
 
     @Override
-    void doEndPhaseChanges(Vector<Report> vPhaseReport) {
+    public void doEndPhaseChanges(Vector<Report> vPhaseReport) {
         // 1st time, find elevators on board
         if (elevators == null || gameManager.getGame().getRoundCount() == 1) {
             elevators = new ElevatorInfo[6];

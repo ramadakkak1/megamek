@@ -11,7 +11,7 @@
  * FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
  * details.
  */
-package megamek.server;
+package megamek.server.manager;
 
 import megamek.MMConstants;
 import megamek.MegaMek;
@@ -47,6 +47,7 @@ import megamek.common.weapons.infantry.InfantryWeapon;
 import megamek.server.commands.*;
 import megamek.server.victory.VictoryResult;
 import org.apache.logging.log4j.LogManager;
+import megamek.server.*;
 
 import java.awt.*;
 import java.io.*;
@@ -14887,7 +14888,7 @@ public class GameManager implements IGameManager {
         }
     }
 
-    void checkRandomAeroMovement(Entity entity, int hotDogMod) {
+    public void checkRandomAeroMovement(Entity entity, int hotDogMod) {
         if (!entity.isAero()) {
             return;
         }
@@ -23330,7 +23331,7 @@ public class GameManager implements IGameManager {
     /**
      * Makes one slot of ammo, determined by certain rules, explode on a mech.
      */
-    Vector<Report> explodeAmmoFromHeat(Entity entity) {
+    public Vector<Report> explodeAmmoFromHeat(Entity entity) {
         int damage = 0;
         int rack = 0;
         int boomloc = -1;
@@ -25881,7 +25882,7 @@ public class GameManager implements IGameManager {
     /**
      * Creates a packet containing all current and out-of-game entities
      */
-    Packet createFullEntitiesPacket() {
+    public Packet createFullEntitiesPacket() {
         return new Packet(PacketCommand.SENDING_ENTITIES, getGame().getEntitiesVector(),
                 getGame().getOutOfGameEntitiesVector(), getGame().getForces());
     }
@@ -29574,7 +29575,7 @@ public class GameManager implements IGameManager {
      * @param eruption <code>boolean</code> indicating whether or not this is because
      *                 of an eruption
      */
-    void doMagmaDamage(Entity en, boolean eruption) {
+    public void doMagmaDamage(Entity en, boolean eruption) {
         if ((((en.getMovementMode() == EntityMovementMode.VTOL) && (en.getElevation() > 0))
                 || (en.getMovementMode() == EntityMovementMode.HOVER)
                 || ((en.getMovementMode() == EntityMovementMode.WIGE)
@@ -29781,7 +29782,8 @@ public class GameManager implements IGameManager {
             AreaEffectHelper.artilleryDamageEntity(entity, damage, bldg, bldgAbsorbs,
                     variableDamage, asfFlak, flak, altitude,
                     attackSource, ammo, coords, isFuelAirBomb,
-                    killer, hex, subjectId, vPhaseReport, this);
+                    killer, hex, subjectId, vPhaseReport,
+                    this);
         }
 
         return alreadyHit;

@@ -1058,7 +1058,7 @@ public class Server implements Runnable {
     /**
      * Sends out player info updates for a player to all connections
      */
-    void transmitPlayerUpdate(Player player) {
+    public void transmitPlayerUpdate(Player player) {
         for (var connection : connections) {
             var playerId = player.getId();
             var destPlayer = player;
@@ -1116,7 +1116,7 @@ public class Server implements Runnable {
         sendChat(ORIGIN, message);
     }
 
-    void send(Packet packet) {
+    public void send(Packet packet) {
         connections.stream()
                 .filter(Objects::nonNull)
                 .forEach(connection -> connection.send(packet));

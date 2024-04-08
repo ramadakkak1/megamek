@@ -1,4 +1,4 @@
-package megamek.server;
+package megamek.server.manager;
 
 import megamek.common.*;
 import megamek.common.net.enums.PacketCommand;
