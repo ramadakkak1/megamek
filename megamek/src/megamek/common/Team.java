@@ -24,6 +24,7 @@ import static java.util.stream.Collectors.*;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import megamek.server.manager.EloManager;
 
 import megamek.common.annotations.Nullable;
 
@@ -173,7 +174,21 @@ public final class Team extends TurnOrdered {
             return id;
         }
     }
+    public int calculateAverageElo() {
+        // Initialisation de la somme des Elo des joueurs à 0.
+        int sumElo = 0;
 
+        // Parcours de tous les joueurs de l'équipe.
+        for (Player player : players) {
+            // Ajout de l'Elo du joueur à la somme totale.
+            sumElo += player.getElo();
+        }
+        // Calcul de la moyenne en divisant la somme totale par le nombre de joueurs.
+        int averageElo = sumElo / players.size();
+
+        // Retourne la moyenne Elo de l'équipe.
+        return averageElo;
+    }
     /**
      * Return the number of "normal" turns that this item requires. This is
      * normally the sum of multi-unit turns and the other turns. A team without
