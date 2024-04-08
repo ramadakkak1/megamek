@@ -8,8 +8,9 @@ import java.util.*;
  * Gère le système Elo pour les joueurs.
  */
 public class EloManager {
-    // Constante pour l'Elo initial
-    private final int INITIAL_ELO = 800;
+    // Constante pour l'Elo initial(cette valeur est arbitraire, selon le
+    //jeu d'échec, c'est 1500)
+    private final int INITIAL_ELO = 1500;
 
     // Map pour stocker les classements Elo des joueurs
     // La clé est une clé composite de l'adresse IP du joueur et s'il s'agit d'un bot.
