@@ -13,14 +13,11 @@
  */
 package megamek.common.weapons.artillery;
 
-import megamek.common.AmmoType;
-import megamek.common.Game;
-import megamek.common.Mounted;
-import megamek.common.ToHitData;
+import megamek.common.*;
 import megamek.common.actions.WeaponAttackAction;
 import megamek.common.weapons.ADAMissileWeaponHandler;
 import megamek.common.weapons.AttackHandler;
-import megamek.server.gameManager.*;
+import megamek.server.GameManager;
 
 /**
  * @author Martin Metke
@@ -80,7 +77,7 @@ public abstract class ArrowIV extends ArtilleryWeapon {
 
     @Override
     protected AttackHandler getCorrectHandler(ToHitData toHit,
-WeaponAttackAction waa, Game game, GameManager manager) {
+                                              WeaponAttackAction waa, Game game, GameManager manager) {
         if(waa.getAmmoMunitionType().contains(AmmoType.Munitions.M_ADA)){
             return new ADAMissileWeaponHandler(toHit, waa, game, manager);
         }
