@@ -49,8 +49,8 @@ import static megamek.client.ui.swing.util.UIUtil.*;
 public class TeamOverviewPanel extends JPanel {
 
     private static final long serialVersionUID = -4754010220963493049L;
-     
-    private enum TOMCOLS { TEAM, MEMBERS, TONNAGE, COST, BV, HIDDEN, UNITS }
+    //Ajout colonne ELO
+    private enum TOMCOLS {TEAM, MEMBERS, TONNAGE, COST, BV, HIDDEN, UNITS, ELO}
     private final TeamOverviewModel teamOverviewModel = new TeamOverviewModel();
     private final JTable teamOverviewTable = new JTable(teamOverviewModel);
     private final TableColumnManager teamOverviewManager = new TableColumnManager(teamOverviewTable, false);
@@ -76,6 +76,9 @@ public class TeamOverviewPanel extends JPanel {
         colModel.getColumn(TOMCOLS.BV.ordinal()).setCellRenderer(centerRenderer);
         colModel.getColumn(TOMCOLS.TEAM.ordinal()).setCellRenderer(centerRenderer);
         colModel.getColumn(TOMCOLS.HIDDEN.ordinal()).setCellRenderer(centerRenderer);
+        //add elo
+        colModel.getColumn(TOMCOLS.ELO.ordinal()).setCellRenderer(centerRenderer);
+
         scrTeams.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
         add(scrTeams);
 
@@ -165,6 +168,9 @@ public class TeamOverviewPanel extends JPanel {
         private ArrayList<Long> tons = new ArrayList<>();
         private ArrayList<String> units = new ArrayList<>();
         private ArrayList<Double> hidden = new ArrayList<>();
+        //Add elo
+        private ArrayList<Integer> elos = new ArrayList<>();
+
 
         @Override
         public int getRowCount() {
@@ -198,6 +204,7 @@ public class TeamOverviewPanel extends JPanel {
                 long cost = 0;
                 double ton = 0;
                 int bv = 0;
+                int elo=0;
                 int[] unitCounts = { 0, 0, 0, 0, 0 };
                 int hiddenBv = 0;
                 boolean[] unitCritical = { false, false, false, false, false };
@@ -206,6 +213,10 @@ public class TeamOverviewPanel extends JPanel {
                     // Get the "real" player object, as the team's may be wrong
                     Player player = game.getPlayer(teamMember.getId());
                     bv += player.getBV();
+                    // Ajoute le score Elo du joueur au total et affiche son Elo
+                    elo += player.getElo();
+                    System.err.println("Score Elo du joueur : " + player.getElo());
+
                     for (Entity entity : game.getPlayerEntities(player, false)) {
                         // Avoid counting fighters in squadrons twice 
                         if (entity instanceof FighterSquadron) {
@@ -236,6 +247,9 @@ public class TeamOverviewPanel extends JPanel {
                 hidden.add(bv != 0 ? (double) hiddenBv / bv : 0);
                 costs.add(cost);
                 tons.add((long) (ton * 1000));
+                //add elo
+                elos.add(elo);
+
             }
             teamOverviewTable.clearSelection();
             fireTableDataChanged();
@@ -355,9 +369,20 @@ public class TeamOverviewPanel extends JPanel {
                     result.append(guiScaledFontHTML(textSizeDelta) + "<CENTER>");
                     var percentage = hidden.get(row);
                     result.append(percentage == 0 ? "--" : NumberFormat.getPercentInstance().format(percentage));
+                    break;
+                case ELO:
+                    // Début du balisage HTML centré avec la taille de police modifiée
+                    result.append(guiScaledFontHTML(textSizeDelta) + "<CENTER>");
+
+                    // Récupération du score Elo pour cette ligne
+                    var elo = elos.get(row);
+
+                    // Vérification si le score Elo est égal à zéro
+                    // Si c'est le cas, affiche "0", sinon affiche le score Elo
+                    result.append(elo == 0 ? "0" : elo.toString());
+                    break;
 
                 default:
-                    break;
             }
 
             return result.toString();

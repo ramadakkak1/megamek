@@ -47,6 +47,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
 import java.util.zip.GZIPInputStream;
 
+
 import org.apache.logging.log4j.LogManager;
 
 import com.thoughtworks.xstream.XStream;
@@ -76,6 +77,7 @@ import megamek.common.preference.PreferenceManager;
 import megamek.common.util.EmailService;
 import megamek.common.util.SerializationHelper;
 import megamek.server.commands.ServerCommand;
+import megamek.server.manager.EloManager;
 
 /**
  * @author Ben Mazur
@@ -83,6 +85,7 @@ import megamek.server.commands.ServerCommand;
 public class Server implements Runnable {
     // server setup
     private final String password;
+    private EloManager eloManager = new EloManager();
 
     private final IGameManager gameManager;
 
@@ -220,7 +223,7 @@ public class Server implements Runnable {
 
             // write something in the log
             LogManager.getLogger().info("s: connection " + conn.getId() + " disconnected");
-
+            Player player = null;
             connections.remove(conn);
             synchronized (serverLock) {
                 connectionsPending.remove(conn);
@@ -232,7 +235,7 @@ public class Server implements Runnable {
                 }
             }
             // if there's a player for this connection, remove it too
-            Player player = getPlayer(conn.getId());
+            player = getPlayer(conn.getId());
             if (null != player) {
                 Server.this.disconnected(player);
             }
@@ -649,6 +652,7 @@ public class Server implements Runnable {
         }
 
         if (!returning) {
+
             // Check to avoid duplicate names...
             sendToPending(connId, new Packet(PacketCommand.SERVER_CORRECT_NAME, correctDupeName(name)));
         }
@@ -660,7 +664,8 @@ public class Server implements Runnable {
 
         // add and validate the player info
         if (!returning) {
-            addNewPlayer(connId, name, isBot);
+            Player bot = addNewPlayer(connId, name, isBot);
+            eloManager.addPlayer(bot);
         }
 
         // if it is not the lounge phase, this player becomes an observer
@@ -688,6 +693,8 @@ public class Server implements Runnable {
             InetAddress[] addresses = InetAddress.getAllByName(InetAddress.getLocalHost().getHostName());
             for (InetAddress address : addresses) {
                 LogManager.getLogger().info("s: machine IP " + address.getHostAddress());
+                player.setIp(address.getHostAddress());
+
                 if (showIPAddressesInChat) {
                     sendServerChat(connId, "Machine IP is " + address.getHostAddress());
                 }
@@ -744,6 +751,7 @@ public class Server implements Runnable {
 
         }
         Player newPlayer = new Player(connId, name);
+        eloManager.addPlayer(newPlayer);
         newPlayer.setBot(isBot);
         PlayerColour colour = newPlayer.getColour();
         Enumeration<Player> players = getGame().getPlayers();
@@ -1058,7 +1066,7 @@ public class Server implements Runnable {
     /**
      * Sends out player info updates for a player to all connections
      */
-    void transmitPlayerUpdate(Player player) {
+    public void transmitPlayerUpdate(Player player) {
         for (var connection : connections) {
             var playerId = player.getId();
             var destPlayer = player;
@@ -1116,7 +1124,7 @@ public class Server implements Runnable {
         sendChat(ORIGIN, message);
     }
 
-    void send(Packet packet) {
+    public void send(Packet packet) {
         connections.stream()
                 .filter(Objects::nonNull)
                 .forEach(connection -> connection.send(packet));

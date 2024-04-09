@@ -21,6 +21,8 @@ package megamek.server;
 import megamek.MMConstants;
 import megamek.common.*;
 import megamek.common.options.OptionsConstants;
+import megamek.server.manager.GameManager;
+
 
 import java.util.*;
 

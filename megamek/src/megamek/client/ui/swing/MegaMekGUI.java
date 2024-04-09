@@ -111,7 +111,7 @@ import megamek.common.scenario.ScenarioLoader;
 import megamek.common.util.EmailService;
 import megamek.common.util.ImageUtil;
 import megamek.common.util.fileUtils.MegaMekFile;
-import megamek.server.GameManager;
+import megamek.server.manager.GameManager;
 import megamek.server.Server;
 import megamek.services.Validation;
 import megamek.utilities.xml.MMXMLUtility;

@@ -17,13 +17,11 @@ import megamek.common.AmmoType;
 import megamek.common.Game;
 import megamek.common.ToHitData;
 import megamek.common.actions.WeaponAttackAction;
-import megamek.common.alphaStrike.ASRange;
 import megamek.common.alphaStrike.AlphaStrikeElement;
 import megamek.common.weapons.AttackHandler;
 import megamek.common.weapons.GRHandler;
-import megamek.server.GameManager;
+import megamek.server.manager.GameManager;
 
-import java.math.BigDecimal;
 
 /**
  * @author Andrew Hunter

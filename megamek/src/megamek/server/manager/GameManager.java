@@ -11,7 +11,7 @@
  * FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
  * details.
  */
-package megamek.server;
+package megamek.server.manager;
 
 import megamek.MMConstants;
 import megamek.MegaMek;
@@ -47,6 +47,7 @@ import megamek.common.weapons.infantry.InfantryWeapon;
 import megamek.server.commands.*;
 import megamek.server.victory.VictoryResult;
 import org.apache.logging.log4j.LogManager;
+import megamek.server.*;
 
 import java.awt.*;
 import java.io.*;
@@ -64,6 +65,10 @@ import java.util.zip.GZIPOutputStream;
 public class GameManager implements IGameManager {
     private final ProcessingManager processingManager = new ProcessingManager(this);
     protected final ConcurrentLinkedQueue<Server.ReceivedPacket> cfrPacketQueue = new ConcurrentLinkedQueue<>();
+    private final UnitManager unitManager = new UnitManager(this);
+    private final MinefieldManager minefieldManager = new MinefieldManager(this);
+    private final SendingManager sendingManager = new SendingManager();
+    private final PacketManager packetManager = new PacketManager(this);
 
     public ConcurrentLinkedQueue<Server.ReceivedPacket> getCfrPacketQueue() {
         ConcurrentLinkedQueue<Server.ReceivedPacket> cfrPacketQueue1 = cfrPacketQueue;
@@ -268,8 +273,8 @@ public class GameManager implements IGameManager {
     public void resetGame() {
         // remove all entities
         getGame().reset();
-        send(createEntitiesPacket());
-        send(new Packet(PacketCommand.SENDING_MINEFIELDS, new Vector<>()));
+        sendingManager.send(createEntitiesPacket());
+        sendingManager.send(new Packet(PacketCommand.SENDING_MINEFIELDS, new Vector<>()));
 
         // remove ghosts
         List<Player> ghosts = new ArrayList<>();
@@ -280,13 +285,13 @@ public class GameManager implements IGameManager {
             } else {
                 // non-ghosts set their starting positions to any
                 p.setStartingPos(Board.START_ANY);
-                transmitPlayerUpdate(p);
+                sendingManager.transmitPlayerUpdate(p);
             }
         }
 
         for (Player p : ghosts) {
             getGame().removePlayer(p.getId());
-            send(new Packet(PacketCommand.PLAYER_REMOVE, p.getId()));
+            sendingManager.send(new Packet(PacketCommand.PLAYER_REMOVE, p.getId()));
         }
 
         // reset all players
@@ -324,20 +329,20 @@ public class GameManager implements IGameManager {
 
     public void setGameMaster(Player player, boolean gameMaster) {
         player.setGameMaster(gameMaster);
-        transmitPlayerUpdate(player);
-        sendServerChat(player.getName() + " set GameMaster: " + player.getGameMaster());
+        sendingManager.transmitPlayerUpdate(player);
+        sendingManager.sendServerChat(player.getName() + " set GameMaster: " + player.getGameMaster());
     }
 
     public void setSingleBlind(Player player, boolean singleBlind) {
         player.setSingleBlind(singleBlind);
-        transmitPlayerUpdate(player);
-        sendServerChat(player.getName() + " set SingleBlind: " + player.getSingleBlind());
+        sendingManager.transmitPlayerUpdate(player);
+        sendingManager.sendServerChat(player.getName() + " set SingleBlind: " + player.getSingleBlind());
     }
 
     public void setSeeAll(Player player, boolean seeAll) {
         player.setSeeAll(seeAll);
-        transmitPlayerUpdate(player);
-        sendServerChat(player.getName() + " set SeeAll: " + player.getSeeAll());
+        sendingManager.transmitPlayerUpdate(player);
+        sendingManager.sendServerChat(player.getName() + " set SeeAll: " + player.getSeeAll());
     }
 
     @Override
@@ -367,14 +372,14 @@ public class GameManager implements IGameManager {
         if (playerChangingTeam != null) {
             playerChangingTeam.setTeam(requestedTeam);
             getGame().setupTeams();
-            transmitPlayerUpdate(playerChangingTeam);
+            sendingManager.transmitPlayerUpdate(playerChangingTeam);
             String teamString = "Team " + requestedTeam + "!";
             if (requestedTeam == Player.TEAM_UNASSIGNED) {
                 teamString = " unassigned!";
             } else if (requestedTeam == Player.TEAM_NONE) {
                 teamString = " lone wolf!";
             }
-            sendServerChat(playerChangingTeam.getName() + " has changed teams to " + teamString);
+            sendingManager.sendServerChat(playerChangingTeam.getName() + " has changed teams to " + teamString);
             playerChangingTeam = null;
         }
         changePlayersTeam = false;
@@ -418,8 +423,8 @@ public class GameManager implements IGameManager {
             while ((input = bin.read()) != -1) {
                 data.add(input);
             }
-            send(connId, new Packet(PacketCommand.SEND_SAVEGAME, sFinalFile, data, sLocalPath));
-            sendChat(connId, "***Server", "Save game has been sent to you.");
+            sendingManager.send(connId, new Packet(PacketCommand.SEND_SAVEGAME, sFinalFile, data, sLocalPath));
+            sendingManager.sendChat(connId, "***Server", "Save game has been sent to you.");
         } catch (Exception ex) {
             LogManager.getLogger().error("Unable to load file: " + localFile, ex);
         }
@@ -459,7 +464,7 @@ public class GameManager implements IGameManager {
         }
 
         if (sendChat) {
-            sendChat("MegaMek", "Game saved to " + sFinalFile);
+            sendingManager.sendChat("MegaMek", "Game saved to " + sFinalFile);
         }
     }
 
@@ -497,7 +502,7 @@ public class GameManager implements IGameManager {
         // This fixes Bug 3399000 without reintroducing 1225949
         if (getGame().getPhase().isVictory() || getGame().getPhase().isLounge() || player.isObserver()) {
             getGame().removePlayer(player.getId());
-            send(new Packet(PacketCommand.PLAYER_REMOVE, player.getId()));
+            sendingManager.send(new Packet(PacketCommand.PLAYER_REMOVE, player.getId()));
             // Prevent situation where all players but the disconnected one
             // are done, and the disconnecting player causes the game to start
             if (getGame().getPhase().isLounge()) {
@@ -506,7 +511,7 @@ public class GameManager implements IGameManager {
         } else {
             player.setGhost(true);
             player.setDone(true);
-            transmitPlayerUpdate(player);
+            sendingManager.transmitPlayerUpdate(player);
         }
 
         // make sure the game advances
@@ -519,7 +524,7 @@ public class GameManager implements IGameManager {
         }
 
         // notify other players
-        sendServerChat(player.getName() + " disconnected.");
+        sendingManager.sendServerChat(player.getName() + " disconnected.");
 
         // log it
         LogManager.getLogger().info("s: removed player " + player.getName());
@@ -549,7 +554,7 @@ public class GameManager implements IGameManager {
         game.getForces().correct();
         ServerLobbyHelper.correctLoading(game);
         ServerLobbyHelper.correctC3Connections(game);
-        send(createFullEntitiesPacket());
+        sendingManager.send(createFullEntitiesPacket());
     }
 
     @Override
@@ -590,7 +595,7 @@ public class GameManager implements IGameManager {
         delEntities.forEach(e -> game.removeEntity(e.getId(), IEntityRemovalConditions.REMOVE_NEVER_JOINED));
 
         // send full update
-        send(createFullEntitiesPacket());
+        sendingManager.send(createFullEntitiesPacket());
     }
 
     private void resetEntityRound() {
@@ -601,15 +606,15 @@ public class GameManager implements IGameManager {
     }
 
     public void send(Packet p) {
-        Server.getServerInstance().send(p);
+        sendingManager.send(p);
     }
 
     public void send(int connId, Packet p) {
-        Server.getServerInstance().send(connId, p);
+        sendingManager.send(connId, p);
     }
 
     public void transmitPlayerUpdate(Player p) {
-        Server.getServerInstance().transmitPlayerUpdate(p);
+        sendingManager.transmitPlayerUpdate(p);
     }
 
     /**
@@ -617,24 +622,24 @@ public class GameManager implements IGameManager {
      */
     private void transmitAllPlayerUpdates() {
         for (var player: getGame().getPlayersVector()) {
-            transmitPlayerUpdate(player);
+            sendingManager.transmitPlayerUpdate(player);
         }
     }
 
     public void sendServerChat(String message) {
-        Server.getServerInstance().sendServerChat(message);
+        sendingManager.sendServerChat(message);
     }
 
     public void sendServerChat(int connId, String message) {
-        Server.getServerInstance().sendServerChat(connId, message);
+        sendingManager.sendServerChat(connId, message);
     }
 
     public void sendChat(String origin, String message) {
-        Server.getServerInstance().sendChat(origin, message);
+        sendingManager.sendChat(origin, message);
     }
 
     public void sendChat(int connId, String origin, String message) {
-        Server.getServerInstance().sendChat(connId, origin, message);
+        sendingManager.sendChat(connId, origin, message);
     }
 
     /**
@@ -643,65 +648,65 @@ public class GameManager implements IGameManager {
      */
     @Override
     public void sendCurrentInfo(int connId) {
-        send(connId, createGameSettingsPacket());
-        send(connId, createPlanetaryConditionsPacket());
+        sendingManager.send(connId, createGameSettingsPacket());
+        sendingManager.send(connId, createPlanetaryConditionsPacket());
 
         Player player = getGame().getPlayer(connId);
         if (null != player) {
-            send(connId, new Packet(PacketCommand.SENDING_MINEFIELDS, player.getMinefields()));
+            sendingManager.send(connId, new Packet(PacketCommand.SENDING_MINEFIELDS, player.getMinefields()));
 
             if (getGame().getPhase().isLounge()) {
-                send(connId, createMapSettingsPacket());
-                send(createMapSizesPacket());
+                sendingManager.send(connId, createMapSettingsPacket());
+                sendingManager.send(createMapSizesPacket());
                 // Send Entities *after* the Lounge Phase Change
-                send(connId, new Packet(PacketCommand.PHASE_CHANGE, getGame().getPhase()));
+                sendingManager.send(connId, new Packet(PacketCommand.PHASE_CHANGE, getGame().getPhase()));
                 if (doBlind()) {
-                    send(connId, createFilteredFullEntitiesPacket(player, null));
+                    sendingManager.send(connId, createFilteredFullEntitiesPacket(player, null));
                 } else {
-                    send(connId, createFullEntitiesPacket());
+                    sendingManager.send(connId, createFullEntitiesPacket());
                 }
             } else {
-                send(connId, new Packet(PacketCommand.ROUND_UPDATE, getGame().getRoundCount()));
-                send(connId, createBoardPacket());
-                send(connId, createAllReportsPacket(player));
+                sendingManager.send(connId, new Packet(PacketCommand.ROUND_UPDATE, getGame().getRoundCount()));
+                sendingManager.send(connId, createBoardPacket());
+                sendingManager.send(connId, createAllReportsPacket(player));
 
                 // Send entities *before* other phase changes.
                 if (doBlind()) {
-                    send(connId, createFilteredFullEntitiesPacket(player, null));
+                    sendingManager.send(connId, createFilteredFullEntitiesPacket(player, null));
                 } else {
-                    send(connId, createFullEntitiesPacket());
+                    sendingManager.send(connId, createFullEntitiesPacket());
                 }
 
                 setPlayerDone(player, getGame().getEntitiesOwnedBy(player) <= 0);
-                send(connId, new Packet(PacketCommand.PHASE_CHANGE, getGame().getPhase()));
+                sendingManager.send(connId, new Packet(PacketCommand.PHASE_CHANGE, getGame().getPhase()));
             }
 
             // LOUNGE triggers a Game.reset() on the client, which wipes out
             // the PlanetaryCondition, so resend
             if (game.getPhase().isLounge()) {
-                send(connId, createPlanetaryConditionsPacket());
+                sendingManager.send(connId, createPlanetaryConditionsPacket());
             }
 
             if (game.getPhase().isFiring() || game.getPhase().isTargeting()
                     || game.getPhase().isOffboard() || game.getPhase().isPhysical()) {
                 // can't go above, need board to have been sent
-                send(connId, createAttackPacket(getGame().getActionsVector(), 0));
-                send(connId, createAttackPacket(getGame().getChargesVector(), 1));
-                send(connId, createAttackPacket(getGame().getRamsVector(), 1));
-                send(connId, createAttackPacket(getGame().getTeleMissileAttacksVector(), 1));
+                sendingManager.send(connId, packetManager.createAttackPacket(getGame().getActionsVector(), 0));
+                sendingManager.send(connId, packetManager.createAttackPacket(getGame().getChargesVector(), 1));
+                sendingManager.send(connId, packetManager.createAttackPacket(getGame().getRamsVector(), 1));
+                sendingManager.send(connId, packetManager.createAttackPacket(getGame().getTeleMissileAttacksVector(), 1));
             }
 
             if (getGame().getPhase().hasTurns() && getGame().hasMoreTurns()) {
-                send(connId, createTurnVectorPacket());
-                send(connId, createTurnIndexPacket(connId));
+                sendingManager.send(connId, createTurnVectorPacket());
+                sendingManager.send(connId, createTurnIndexPacket(connId));
             } else if (!getGame().getPhase().isLounge() && !getGame().getPhase().isStartingScenario()) {
                 endCurrentPhase();
             }
 
-            send(connId, createArtilleryPacket(player));
-            send(connId, createFlarePacket());
-            send(connId, createSpecialHexDisplayPacket(connId));
-            send(connId, new Packet(PacketCommand.PRINCESS_SETTINGS, getGame().getBotSettings()));
+            sendingManager.send(connId, createArtilleryPacket(player));
+            sendingManager.send(connId, createFlarePacket());
+            sendingManager.send(connId, createSpecialHexDisplayPacket(connId));
+            sendingManager.send(connId, new Packet(PacketCommand.PRINCESS_SETTINGS, getGame().getBotSettings()));
         }
     }
 
@@ -710,9 +715,9 @@ public class GameManager implements IGameManager {
      */
     public void sendEntities(int connId) {
         if (doBlind()) {
-            send(connId, createFilteredFullEntitiesPacket(game.getPlayer(connId), null));
+            sendingManager.send(connId, createFilteredFullEntitiesPacket(game.getPlayer(connId), null));
         } else {
-            send(connId, createEntitiesPacket());
+            sendingManager.send(connId, createEntitiesPacket());
         }
     }
 
@@ -730,7 +735,7 @@ public class GameManager implements IGameManager {
         switch (packet.getCommand()) {
             case PLAYER_READY:
                 receivePlayerDone(packet, connId);
-                send(createPlayerDonePacket(connId));
+                sendingManager.send(createPlayerDonePacket(connId));
                 checkReady();
                 break;
             case PRINCESS_SETTINGS:
@@ -754,7 +759,7 @@ public class GameManager implements IGameManager {
                     if (!explodingCharges.contains(charge)) {
                         explodingCharges.add(charge);
                         Player p = game.getPlayer(connId);
-                        sendServerChat(p.getName() + " has touched off explosives "
+                        sendingManager.sendServerChat(p.getName() + " has touched off explosives "
                                 + "(handled in end phase)!");
                     }
                 }
@@ -874,7 +879,7 @@ public class GameManager implements IGameManager {
             case SENDING_GAME_SETTINGS:
                 if (receiveGameOptions(packet, connId)) {
                     resetPlayersDone();
-                    send(createGameSettingsPacket());
+                    sendingManager.send(createGameSettingsPacket());
                     receiveGameOptionsAux(packet, connId);
                 }
                 break;
@@ -882,7 +887,7 @@ public class GameManager implements IGameManager {
                 if (game.getPhase().isBefore(GamePhase.DEPLOYMENT)) {
                     MapSettings newSettings = (MapSettings) packet.getObject(0);
                     if (!game.getMapSettings().equalMapGenParameters(newSettings)) {
-                        sendServerChat(player + " changed map settings");
+                        sendingManager.sendServerChat(player + " changed map settings");
                     }
                     MapSettings mapSettings = newSettings;
                     mapSettings.setBoardsAvailableVector(ServerBoardHelper.scanForBoards(mapSettings));
@@ -890,14 +895,14 @@ public class GameManager implements IGameManager {
                     mapSettings.setNullBoards(DEFAULT_BOARD);
                     game.setMapSettings(mapSettings);
                     resetPlayersDone();
-                    send(createMapSettingsPacket());
+                    sendingManager.send(createMapSettingsPacket());
                 }
                 break;
             case SENDING_MAP_DIMENSIONS:
                 if (game.getPhase().isBefore(GamePhase.DEPLOYMENT)) {
                     MapSettings newSettings = (MapSettings) packet.getObject(0);
                     if (!game.getMapSettings().equalMapGenParameters(newSettings)) {
-                        sendServerChat(player + " changed map dimensions");
+                        sendingManager.sendServerChat(player + " changed map dimensions");
                     }
                     MapSettings mapSettings = newSettings;
                     mapSettings.setBoardsAvailableVector(ServerBoardHelper.scanForBoards(mapSettings));
@@ -905,16 +910,16 @@ public class GameManager implements IGameManager {
                     mapSettings.setNullBoards(DEFAULT_BOARD);
                     game.setMapSettings(mapSettings);
                     resetPlayersDone();
-                    send(createMapSettingsPacket());
+                    sendingManager.send(createMapSettingsPacket());
                 }
                 break;
             case SENDING_PLANETARY_CONDITIONS:
                 if (game.getPhase().isBefore(GamePhase.DEPLOYMENT)) {
                     PlanetaryConditions conditions = (PlanetaryConditions) packet.getObject(0);
-                    sendServerChat(player + " changed planetary conditions");
+                    sendingManager.sendServerChat(player + " changed planetary conditions");
                     game.setPlanetaryConditions(conditions);
                     resetPlayersDone();
-                    send(createPlanetaryConditionsPacket());
+                    sendingManager.send(createPlanetaryConditionsPacket());
                 }
                 break;
             case UNLOAD_STRANDED:
@@ -990,11 +995,11 @@ public class GameManager implements IGameManager {
             // If we removed a unit during the movement phase that hasn't moved, remove its turn.
             if (getGame().getPhase().isMovement() && entity.isSelectableThisTurn()) {
                 getGame().removeTurnFor(entity);
-                send(createTurnVectorPacket());
+                sendingManager.send(createTurnVectorPacket());
             }
             entityUpdate(entity.getId());
             game.removeEntity(entity.getId(), condition);
-            send(createRemoveEntityPacket(entity.getId(), condition));
+            sendingManager.send(createRemoveEntityPacket(entity.getId(), condition));
         }
     }
 
@@ -1058,7 +1063,7 @@ public class GameManager implements IGameManager {
 
             entityUpdate(entity.getId());
             game.removeEntity(entity.getId(), condition);
-            send(createRemoveEntityPacket(entity.getId(), condition));
+            sendingManager.send(createRemoveEntityPacket(entity.getId(), condition));
         }
 
         // do some housekeeping on all the remaining
@@ -1113,7 +1118,7 @@ public class GameManager implements IGameManager {
         }
 
         game.clearIlluminatedPositions();
-        send(new Packet(PacketCommand.CLEAR_ILLUM_HEXES));
+        sendingManager.send(new Packet(PacketCommand.CLEAR_ILLUM_HEXES));
     }
 
     /**
@@ -1581,12 +1586,12 @@ public class GameManager implements IGameManager {
 
         // brief everybody on the turn update, if they changed
         if (turnsChanged) {
-            send(createTurnVectorPacket());
+            sendingManager.send(createTurnVectorPacket());
         }
 
         // move along
         if (outOfOrder) {
-            send(createTurnIndexPacket(playerId));
+            sendingManager.send(createTurnIndexPacket(playerId));
         } else {
             changeToNextTurn(playerId);
         }
@@ -1607,7 +1612,7 @@ public class GameManager implements IGameManager {
 
         if (phase.isPlayable(getGame())) {
             // tell the players about the new phase
-            send(new Packet(PacketCommand.PHASE_CHANGE, phase));
+            sendingManager.send(new Packet(PacketCommand.PHASE_CHANGE, phase));
 
             // post phase change stuff
             executePhase(phase);
@@ -1616,57 +1621,13 @@ public class GameManager implements IGameManager {
         }
     }
 
-    private static class BVCountHelper {
-        int bv;
-        int bvInitial;
-        int bvFled;
-        int unitsCount;
-        int unitsInitialCount;
-        int unitsLightDamageCount;
-        int unitsModerateDamageCount;
-        int unitsHeavyDamageCount;
-        int unitsCrippledCount;
-        int unitsDestroyedCount;
-        int unitsCrewEjectedCount;
-        int unitsCrewTrappedCount;
-        int unitsCrewKilledCount;
-        int unitsFledCount;
-        int ejectedCrewActiveCount;
-        int ejectedCrewPickedUpByTeamCount;
-        int ejectedCrewPickedUpByEnemyTeamCount;
-        int ejectedCrewKilledCount;
-        int ejectedCrewFledCount;
-
-        public BVCountHelper() {
-            this.bv = 0;
-            this.bvInitial = 0;
-            this.bvFled = 0;
-            this.unitsCount = 0;
-            this.unitsInitialCount = 0;
-            this.unitsLightDamageCount = 0;
-            this.unitsModerateDamageCount = 0;
-            this.unitsHeavyDamageCount = 0;
-            this.unitsCrippledCount = 0;
-            this.unitsDestroyedCount = 0;
-            this.unitsCrewEjectedCount = 0;
-            this.unitsCrewTrappedCount = 0;
-            this.unitsCrewKilledCount = 0;
-            this.unitsFledCount = 0;
-            this.ejectedCrewActiveCount = 0;
-            this.ejectedCrewPickedUpByTeamCount = 0;
-            this.ejectedCrewPickedUpByEnemyTeamCount = 0;
-            this.ejectedCrewKilledCount = 0;
-            this.ejectedCrewFledCount = 0;
-        }
-    }
-
     private void bvReports(boolean checkBlind) {
         List<Report> playerReport = new ArrayList<>();
         List<Report> teamReport = new ArrayList<>();
-        HashMap<Integer, BVCountHelper> teamsInfo = new HashMap<>();
+        HashMap<Integer, BVManager.BVCountHelper> teamsInfo = new HashMap<>();
 
         for (Team team : game.getTeams()) {
-            teamsInfo.put(team.getId(), new BVCountHelper());
+            teamsInfo.put(team.getId(), new BVManager.BVCountHelper());
         }
 
         // blank line
@@ -1679,7 +1640,7 @@ public class GameManager implements IGameManager {
                 continue;
             }
 
-            BVCountHelper bvcPlayer = new BVCountHelper();
+            BVManager.BVCountHelper bvcPlayer = new BVManager.BVCountHelper();
             bvcPlayer.bv = player.getBV();
             bvcPlayer.bvInitial = player.getInitialBV();
             bvcPlayer.bvFled = ServerReportsHelper.getFledBV(player, game);
@@ -1705,7 +1666,7 @@ public class GameManager implements IGameManager {
             int playerTeam = player.getTeam();
 
             if ((playerTeam != Player.TEAM_UNASSIGNED) && (playerTeam != Player.TEAM_NONE)) {
-                BVCountHelper bvcTeam = teamsInfo.get(playerTeam);
+                BVManager.BVCountHelper bvcTeam = teamsInfo.get(playerTeam);
                 bvcTeam.bv += bvcPlayer.bv;
                 bvcTeam.bvInitial += bvcPlayer.bvInitial;
                 bvcTeam.bvFled += bvcPlayer.bvFled;
@@ -1730,8 +1691,8 @@ public class GameManager implements IGameManager {
 
         // Show teams BVs
         if (!(checkBlind && doBlind() && suppressBlindBV())) {
-            for (Map.Entry<Integer, BVCountHelper> e : teamsInfo.entrySet()) {
-                BVCountHelper bvc = e.getValue();
+            for (Map.Entry<Integer, BVManager.BVCountHelper> e : teamsInfo.entrySet()) {
+                BVManager.BVCountHelper bvc = e.getValue();
                 teamReport.addAll(bvReport(Player.TEAM_NAMES[e.getKey()], Player.PLAYER_NONE, bvc, false));
             }
         }
@@ -1740,7 +1701,7 @@ public class GameManager implements IGameManager {
         vPhaseReport.addAll(playerReport);
     }
 
-    private List<Report> bvReport(String name, int playerID, BVCountHelper bvc, boolean checkBlind) {
+    private List<Report> bvReport(String name, int playerID, BVManager.BVCountHelper bvc, boolean checkBlind) {
         List<Report> result = new ArrayList<>();
 
         Report r = new Report(7016, Report.PUBLIC);
@@ -1874,8 +1835,8 @@ public class GameManager implements IGameManager {
                 MapSettings mapSettings = game.getMapSettings();
                 mapSettings.setBoardsAvailableVector(ServerBoardHelper.scanForBoards(mapSettings));
                 mapSettings.setNullBoards(DEFAULT_BOARD);
-                send(createMapSettingsPacket());
-                send(createMapSizesPacket());
+                sendingManager.send(createMapSettingsPacket());
+                sendingManager.send(createMapSizesPacket());
                 checkForObservers();
                 transmitAllPlayerUpdates();
                 break;
@@ -1940,7 +1901,7 @@ public class GameManager implements IGameManager {
                 game.resetTurnIndex();
 
                 // send turns to all players
-                send(createTurnVectorPacket());
+                sendingManager.send(createTurnVectorPacket());
                 break;
             case SET_ARTILLERY_AUTOHIT_HEXES:
                 deployOffBoardEntities();
@@ -1978,7 +1939,7 @@ public class GameManager implements IGameManager {
                 game.resetTurnIndex();
 
                 // send turns to all players
-                send(createTurnVectorPacket());
+                sendingManager.send(createTurnVectorPacket());
                 break;
             case PREMOVEMENT:
             case MOVEMENT:
@@ -2030,11 +1991,11 @@ public class GameManager implements IGameManager {
                 resolveEmergencyCoolantSystem();
                 checkForSuffocation();
                 game.getPlanetaryConditions().determineWind();
-                send(createPlanetaryConditionsPacket());
+                sendingManager.send(createPlanetaryConditionsPacket());
 
                 applyBuildingDamage();
                 addReport(game.ageFlares());
-                send(createFlarePacket());
+                sendingManager.send(createFlarePacket());
                 resolveAmmoDumps();
                 resolveCrewWakeUp();
                 resolveConsoleCrewSwaps();
@@ -2080,7 +2041,7 @@ public class GameManager implements IGameManager {
             case VICTORY:
                 resetPlayersDone();
                 clearReports();
-                send(createAllReportsPacket());
+                sendingManager.send(createAllReportsPacket());
                 prepareVictoryReport();
                 game.addReports(vPhaseReport);
                 // Before we send the full entities packet we need to loop
@@ -2139,9 +2100,9 @@ public class GameManager implements IGameManager {
                         }
                     }
                 }
-                send(createFullEntitiesPacket());
-                send(createReportPacket(null));
-                send(createEndOfGamePacket());
+                sendingManager.send(createFullEntitiesPacket());
+                sendingManager.send(createReportPacket(null));
+                sendingManager.send(createEndOfGamePacket());
                 break;
             default:
                 break;
@@ -2165,9 +2126,9 @@ public class GameManager implements IGameManager {
                 game.setupTeams();
                 applyBoardSettings();
                 game.getPlanetaryConditions().determineWind();
-                send(createPlanetaryConditionsPacket());
+                sendingManager.send(createPlanetaryConditionsPacket());
                 // transmit the board to everybody
-                send(createBoardPacket());
+                sendingManager.send(createBoardPacket());
                 game.setupRoundDeployment();
                 game.setVictoryContext(new HashMap<>());
                 game.createVictoryConditions();
@@ -2493,7 +2454,7 @@ public class GameManager implements IGameManager {
                 for (Enumeration<Player> i = game.getPlayers(); i.hasMoreElements(); ) {
                     Player player = i.nextElement();
                     int connId = player.getId();
-                    send(connId, createArtilleryPacket(player));
+                    sendingManager.send(connId, createArtilleryPacket(player));
                 }
 
                 break;
@@ -2507,7 +2468,7 @@ public class GameManager implements IGameManager {
                 for (Enumeration<Player> i = game.getPlayers(); i.hasMoreElements(); ) {
                     Player player = i.nextElement();
                     int connId = player.getId();
-                    send(connId, createArtilleryPacket(player));
+                    sendingManager.send(connId, createArtilleryPacket(player));
                 }
                 applyBuildingDamage();
                 checkForPSRFromDamage();
@@ -2596,16 +2557,16 @@ public class GameManager implements IGameManager {
 
     private void sendSpecialHexDisplayPackets() {
         for (Player player : game.getPlayersVector()) {
-            send(createSpecialHexDisplayPacket(player.getId()));
+            sendingManager.send(createSpecialHexDisplayPacket(player.getId()));
         }
     }
 
     private void sendTagInfoUpdates() {
-        send(new Packet(PacketCommand.SENDING_TAG_INFO, getGame().getTagInfo()));
+        sendingManager.send(new Packet(PacketCommand.SENDING_TAG_INFO, getGame().getTagInfo()));
     }
 
     public void sendTagInfoReset() {
-        send(new Packet(PacketCommand.RESET_TAG_INFO));
+        sendingManager.send(new Packet(PacketCommand.RESET_TAG_INFO));
     }
 
     /**
@@ -2613,7 +2574,7 @@ public class GameManager implements IGameManager {
      */
     private void incrementAndSendGameRound() {
         game.incrementRoundCount();
-        send(new Packet(PacketCommand.ROUND_UPDATE, getGame().getRoundCount()));
+        sendingManager.send(new Packet(PacketCommand.ROUND_UPDATE, getGame().getRoundCount()));
     }
 
     /**
@@ -2707,8 +2668,8 @@ public class GameManager implements IGameManager {
                 if (switched) {
                     game.swapTurnOrder(currentTurnIndex, nextTurnId);
                     // update the turn packages for all players.
-                    send(createTurnVectorPacket());
-                    send(createTurnIndexPacket(connectionId));
+                    sendingManager.send(createTurnVectorPacket());
+                    sendingManager.send(createTurnIndexPacket(connectionId));
                     return;
                 }
                 // if nothing changed return without doing anything
@@ -2752,9 +2713,9 @@ public class GameManager implements IGameManager {
         }
 
         if (prevPlayerId != -1) {
-            send(createTurnIndexPacket(prevPlayerId));
+            sendingManager.send(createTurnIndexPacket(prevPlayerId));
         } else {
-            send(createTurnIndexPacket(player != null ? player.getId() : Player.PLAYER_NONE));
+            sendingManager.send(createTurnIndexPacket(player != null ? player.getId() : Player.PLAYER_NONE));
         }
 
         if ((null != player) && player.isGhost()) {
@@ -2774,7 +2735,7 @@ public class GameManager implements IGameManager {
     private void sendGhostSkipMessage(Player ghost) {
         String message = "Player '" + ghost.getName() +
                 "' is disconnected.  You may skip his/her current turn with the /skip command.";
-        sendServerChat(message);
+        sendingManager.sendServerChat(message);
     }
 
     /**
@@ -2788,7 +2749,7 @@ public class GameManager implements IGameManager {
         String message = "Player '" + skip.getName() +
                 "' has no units to move.  You should skip his/her/your current turn with the /skip command. " +
                 "You may want to report this error at https://github.com/MegaMek/megamek/issues";
-        sendServerChat(message);
+        sendingManager.sendServerChat(message);
     }
 
     /**
@@ -3036,7 +2997,7 @@ public class GameManager implements IGameManager {
         game.resetTurnIndex();
 
         // send turns to all players
-        send(createTurnVectorPacket());
+        sendingManager.send(createTurnVectorPacket());
     }
 
     /**
@@ -3333,7 +3294,7 @@ public class GameManager implements IGameManager {
         game.resetTurnIndex();
 
         // send turns to all players
-        send(createTurnVectorPacket());
+        sendingManager.send(createTurnVectorPacket());
     }
 
     /**
@@ -3653,83 +3614,26 @@ public class GameManager implements IGameManager {
     protected void loadUnit(Entity loader, Entity unit, int bayNumber) {
         // ProtoMechs share a single turn for a Point. When loading one we don't remove its turn
         // unless it's the last unit in the Point to act.
-        int remainingProtos = 0;
-        if (unit.hasETypeFlag(Entity.ETYPE_PROTOMECH)) {
-            remainingProtos = game.getSelectedEntityCount(en -> en.hasETypeFlag(Entity.ETYPE_PROTOMECH)
-                    && en.getId() != unit.getId()
-                    && en.isSelectableThisTurn()
-                    && en.getOwnerId() == unit.getOwnerId()
-                    && en.getUnitNumber() == unit.getUnitNumber());
-        }
-
-        if (!getGame().getPhase().isLounge() && !unit.isDone() && (remainingProtos == 0)) {
-            // Remove the *last* friendly turn (removing the *first* penalizes
-            // the opponent too much, and re-calculating moves is too hard).
-            game.removeTurnFor(unit);
-            send(createTurnVectorPacket());
-        }
 
         // Fighter Squadrons may become too big for the bay they're parked in
-        if ((loader instanceof FighterSquadron) && (loader.getTransportId() != Entity.NONE)) {
-            Entity carrier = game.getEntity(loader.getTransportId());
-            Transporter bay = carrier.getBay(loader);
-
-            if (bay.getUnused() < 1) {
-                if (getGame().getPhase().isLounge()) {
-                    // In the lobby, unload the squadron if too big
-                    loader.setTransportId(Entity.NONE);
-                    carrier.unload(loader);
-                    entityUpdate(carrier.getId());
-                } else {
-                    // Outside the lobby, reject the load
-                    entityUpdate(unit.getId());
-                    entityUpdate(loader.getId());
-                    return;
-                }
-            }
-        }
 
         // When loading an Aero into a squadron in the lounge, make sure the
         // loaded aero has the same bomb loadout as the squadron
         // We want to do this before the fighter is loaded: when the fighter
         // is loaded into the squadron, the squadrons bombing attacks are
         // adjusted based on the bomb loadout on the fighter.
-        if (getGame().getPhase().isLounge() && (loader instanceof FighterSquadron)) {
-            ((IBomber) unit).setBombChoices(((FighterSquadron) loader).getExtBombChoices());
-            ((FighterSquadron) loader).updateSkills();
-            ((FighterSquadron) loader).updateWeaponGroups();
-        }
 
         // Load the unit. Do not check for elevation during deployment
-        boolean checkElevation = !getGame().getPhase().isLounge()
-                && !getGame().getPhase().isDeployment();
-        try {
-            loader.load(unit, checkElevation, bayNumber);
-        } catch (IllegalArgumentException e) {
-            LogManager.getLogger().info(e.getMessage());
-            sendServerChat(e.getMessage());
-            return;
-        }
         // The loaded unit is being carried by the loader.
-        unit.setTransportId(loader.getId());
 
         // Remove the loaded unit from the screen.
-        unit.setPosition(null);
 
         // set deployment round of the loadee to equal that of the loader
-        unit.setDeployRound(loader.getDeployRound());
 
         // Update the loading unit's passenger count, if it's a large craft
-        if ((loader instanceof SmallCraft) || (loader instanceof Jumpship)) {
-            // Don't add DropShip crew to a JumpShip or station's passenger list
-            if (!unit.isLargeCraft()) {
-                loader.setNPassenger(loader.getNPassenger() + unit.getCrew().getSize());
-            }
-        }
 
         // Update the loaded unit.
-        entityUpdate(unit.getId());
-        entityUpdate(loader.getId());
+        unitManager.loadUnit(loader, unit, bayNumber);
     }
 
     /**
@@ -3740,21 +3644,11 @@ public class GameManager implements IGameManager {
      * @param unit   - the <code>Entity</code> being towed.
      */
     public void towUnit(Entity loader, Entity unit) {
-        if (!getGame().getPhase().isLounge() && !unit.isDone()) {
-            // Remove the *last* friendly turn (removing the *first* penalizes
-            // the opponent too much, and re-calculating moves is too hard).
-            game.removeTurnFor(unit);
-            send(createTurnVectorPacket());
-        }
-
-        loader.towUnit(unit.getId());
 
         // set deployment round of the loadee to equal that of the loader
-        unit.setDeployRound(loader.getDeployRound());
 
         // Update the loader and towed units.
-        entityUpdate(unit.getId());
-        entityUpdate(loader.getId());
+        unitManager.towUnit(loader, unit);
     }
 
     /**
@@ -3772,36 +3666,21 @@ public class GameManager implements IGameManager {
      */
     protected boolean disconnectUnit(Entity tractor, Targetable unloaded, Coords pos) {
         // We can only unload Entities.
-        Entity trailer;
-        if (unloaded instanceof Entity) {
-            trailer = (Entity) unloaded;
-        } else {
-            return false;
-        }
         // disconnectUnit() updates anything behind 'trailer' too, so copy
         // the list of trailers before we alter it so entityUpdate() can be
         // run on all of them. Also, add the entity towing Trailer to the list
-        List<Integer> trailerList = new ArrayList<>(trailer.getConnectedUnits());
-        trailerList.add(trailer.getTowedBy());
 
         // Unload the unit.
-        tractor.disconnectUnit(trailer.getId());
 
         // Update the tractor and all affected trailers.
-        for (int id : trailerList) {
-            entityUpdate(id);
-        }
-        entityUpdate(trailer.getId());
-        entityUpdate(tractor.getId());
 
         // Unloaded successfully.
-        return true;
+        return unitManager.disconnectUnit(tractor, unloaded, pos);
     }
 
     public boolean unloadUnit(Entity unloader, Targetable unloaded,
                               Coords pos, int facing, int elevation) {
-        return unloadUnit(unloader, unloaded, pos, facing, elevation, false,
-                false);
+        return unitManager.unloadUnit(unloader, unloaded, pos, facing, elevation);
     }
 
     /**
@@ -3830,179 +3709,30 @@ public class GameManager implements IGameManager {
                                boolean duringDeployment) {
 
         // We can only unload Entities.
-        Entity unit;
-        if (unloaded instanceof Entity) {
-            unit = (Entity) unloaded;
-        } else {
-            return false;
-        }
 
         // Unload the unit.
-        if (!unloader.unload(unit)) {
-            return false;
-        }
 
         // The unloaded unit is no longer being carried.
-        unit.setTransportId(Entity.NONE);
 
         // Place the unloaded unit onto the screen.
-        unit.setPosition(pos);
 
         // Units unloaded onto the screen are deployed.
-        if (pos != null) {
-            unit.setDeployed(true);
-        }
 
         // Point the unloaded unit in the given direction.
-        unit.setFacing(facing);
-        unit.setSecondaryFacing(facing);
-
-        Hex hex = game.getBoard().getHex(pos);
-        boolean isBridge = (hex != null)
-                && hex.containsTerrain(Terrains.PAVEMENT);
-
-        if (hex == null) {
-            unit.setElevation(elevation);
-        } else if (unloader.getMovementMode() == EntityMovementMode.VTOL) {
-            if (unit.getMovementMode() == EntityMovementMode.VTOL) {
-                // Flying units unload to the same elevation as the flying
-                // transport
-                unit.setElevation(elevation);
-            } else if (game.getBoard().getBuildingAt(pos) != null) {
-                // non-flying unit unloaded from a flying onto a building
-                // -> sit on the roof
-                unit.setElevation(hex.terrainLevel(Terrains.BLDG_ELEV));
-            } else {
-                while (elevation >= -hex.depth()) {
-                    if (unit.isElevationValid(elevation, hex)) {
-                        unit.setElevation(elevation);
-                        break;
-                    }
-                    elevation--;
-                    // If unit is landed, the while loop breaks before here
-                    // And unit.moved will be MOVE_NONE
-                    // If we can jump, use jump
-                    if (unit.getJumpMP() > 0) {
-                        unit.moved = EntityMovementType.MOVE_JUMP;
-                    } else { // Otherwise, use walk trigger check for ziplines
-                        unit.moved = EntityMovementType.MOVE_WALK;
-                    }
-                }
-                if (!unit.isElevationValid(elevation, hex)) {
-                    return false;
-                }
-            }
-        } else if (game.getBoard().getBuildingAt(pos) != null) {
-            // non flying unit unloading units into a building
-            // -> sit in the building at the same elevation
-            unit.setElevation(elevation);
-        } else if (hex.terrainLevel(Terrains.WATER) > 0) {
-            if ((unit.getMovementMode() == EntityMovementMode.HOVER)
-                    || (unit.getMovementMode() == EntityMovementMode.WIGE)
-                    || (unit.getMovementMode() == EntityMovementMode.HYDROFOIL)
-                    || (unit.getMovementMode() == EntityMovementMode.NAVAL)
-                    || (unit.getMovementMode() == EntityMovementMode.SUBMARINE)
-                    || (unit.getMovementMode() == EntityMovementMode.INF_UMU)
-                    || hex.containsTerrain(Terrains.ICE) || isBridge) {
-                // units that can float stay on the surface, or we go on the
-                // bridge
-                // this means elevation 0, because elevation is relative to the
-                // surface
-                unit.setElevation(0);
-            }
-        } else {
-            // default to the floor of the hex.
-            // unit elevation is relative to the surface
-            unit.setElevation(hex.floor() - hex.getLevel());
-        }
 
         // Check for zip lines PSR -- MOVE_WALK implies ziplines
-        if (unit.moved == EntityMovementType.MOVE_WALK) {
-            if (game.getOptions().booleanOption(OptionsConstants.ADVGRNDMOV_TACOPS_ZIPLINES)
-                    && (unit instanceof Infantry)
-                    && !((Infantry) unit).isMechanized()) {
-
-                // Handle zip lines
-                PilotingRollData psr = getEjectModifiers(game, unit, 0, false,
-                        unit.getPosition(), "Anti-mek skill");
-                // Factor in Elevation
-                if (unloader.getElevation() > 0) {
-                    psr.addModifier(unloader.getElevation(), "elevation");
-                }
-                Roll diceRoll = Compute.rollD6(2);
-
-                // Report ziplining
-                Report r = new Report(9920);
-                r.subject = unit.getId();
-                r.addDesc(unit);
-                r.newlines = 0;
-                addReport(r);
-
-                // Report TN
-                r = new Report(9921);
-                r.subject = unit.getId();
-                r.add(psr.getValue());
-                r.add(psr.getDesc());
-                r.add(diceRoll);
-                r.newlines = 0;
-                addReport(r);
-
-                if (diceRoll.getIntValue() < psr.getValue()) { // Failure!
-                    r = new Report(9923);
-                    r.subject = unit.getId();
-                    r.add(psr.getValue());
-                    r.add(diceRoll);
-                    addReport(r);
-
-                    HitData hit = unit.rollHitLocation(ToHitData.HIT_NORMAL, ToHitData.SIDE_FRONT);
-                    hit.setIgnoreInfantryDoubleDamage(true);
-                    addReport(damageEntity(unit, hit, 5));
-                } else { //  Report success
-                    r = new Report(9922);
-                    r.subject = unit.getId();
-                    r.add(psr.getValue());
-                    r.add(diceRoll);
-                    addReport(r);
-                }
-                addNewLines();
-            } else {
-                return false;
-            }
-        }
-
-        addReport(doSetLocationsExposure(unit, hex, false, unit.getElevation()));
 
         // unlike other unloaders, entities unloaded from droppers can still
         // move (unless infantry)
-        if (!evacuation && (unloader instanceof SmallCraft)
-                && !(unit instanceof Infantry)) {
-            unit.setUnloaded(false);
-            unit.setDone(false);
-
-            // unit uses half of walk mp and is treated as moving one hex
-            unit.mpUsed = unit.getOriginalWalkMP() / 2;
-            unit.delta_distance = 1;
-        }
 
         // If we unloaded during deployment, allow a turn
-        if (duringDeployment) {
-            unit.setUnloaded(false);
-            unit.setDone(false);
-        }
 
         //Update the transport unit's passenger count, if it's a large craft
-        if (unloader instanceof SmallCraft || unloader instanceof Jumpship) {
-            //Don't add dropship crew to a jumpship or station's passenger list
-            if (!unit.isLargeCraft()) {
-                unloader.setNPassenger(Math.max(0, unloader.getNPassenger() - unit.getCrew().getSize()));
-            }
-        }
 
         // Update the unloaded unit.
-        entityUpdate(unit.getId());
 
         // Unloaded successfully.
-        return true;
+        return unitManager.unloadUnit(unloader, unloaded, pos, facing, elevation, evacuation, duringDeployment);
     }
 
     /**
@@ -4012,54 +3742,13 @@ public class GameManager implements IGameManager {
      * @param roll   The <code>PilotingRollData</code> to be used for this landing.
      */
     public void attemptLanding(Entity entity, PilotingRollData roll) {
-        if (roll.getValue() == TargetRoll.AUTOMATIC_SUCCESS) {
-            return;
-        }
 
         // okay, print the info
-        Report r = new Report(9605);
-        r.subject = entity.getId();
-        r.addDesc(entity);
-        r.add(roll.getLastPlainDesc(), true);
-        addReport(r);
 
         // roll
-        final Roll diceRoll = Compute.rollD6(2);
-        r = new Report(9606);
-        r.subject = entity.getId();
-        r.add(roll.getValueAsString());
-        r.add(roll.getDesc());
-        r.add(diceRoll);
 
         // boolean suc;
-        if (diceRoll.getIntValue() < roll.getValue()) {
-            r.choose(false);
-            addReport(r);
-            int mof = roll.getValue() - diceRoll.getIntValue();
-            int damage = 10 * (mof);
-            // Report damage taken
-            r = new Report(9609);
-            r.indent();
-            r.addDesc(entity);
-            r.add(damage);
-            r.add(mof);
-            addReport(r);
-
-            int side = ToHitData.SIDE_FRONT;
-            if ((entity instanceof Aero) && ((Aero) entity).isSpheroid()) {
-                side = ToHitData.SIDE_REAR;
-            }
-            while (damage > 0) {
-                HitData hit = entity.rollHitLocation(ToHitData.HIT_NORMAL, side);
-                addReport(damageEntity(entity, hit, 10));
-                damage -= 10;
-            }
-            // suc = false;
-        } else {
-            r.choose(true);
-            addReport(r);
-            // suc = true;
-        }
+        unitManager.attemptLanding(entity, roll);
     }
 
     /**
@@ -4073,195 +3762,61 @@ public class GameManager implements IGameManager {
      */
     public void checkLandingTerrainEffects(IAero aero, boolean vertical, Coords touchdownPos, Coords finalPos, int facing) {
         // Landing in a rough for rubble hex damages landing gear.
-        Set<Coords> landingPositions = aero.getLandingCoords(vertical, touchdownPos, facing);
-        if (landingPositions.stream().map(c -> game.getBoard().getHex(c)).filter(Objects::nonNull)
-                .anyMatch(h -> h.containsTerrain(Terrains.ROUGH) || h.containsTerrain(Terrains.RUBBLE))) {
-            aero.setGearHit(true);
-            Report r = new Report(9125);
-            r.subject = ((Entity) aero).getId();
-            addReport(r);
-        }
         // Landing in water can destroy or immobilize the unit.
-        Hex hex = game.getBoard().getHex(finalPos);
-        if ((aero instanceof Aero) && hex.containsTerrain(Terrains.WATER) && !hex.containsTerrain(Terrains.ICE)
-                && (hex.terrainLevel(Terrains.WATER) > 0)
-                && !((Entity) aero).hasWorkingMisc(MiscType.F_FLOTATION_HULL)) {
-            if ((hex.terrainLevel(Terrains.WATER) > 1) || !(aero instanceof Dropship)) {
-                Report r = new Report(9702);
-                r.subject(((Entity) aero).getId());
-                r.addDesc((Entity) aero);
-                addReport(r);
-                addReport(destroyEntity((Entity) aero, "landing in deep water"));
-            }
-        }
+        unitManager.checkLandingTerrainEffects(aero, vertical, touchdownPos, finalPos, facing);
     }
 
     protected boolean launchUnit(Entity unloader, Targetable unloaded,
                                  Coords pos, int facing, int velocity, int altitude, int[] moveVec,
                                  int bonus) {
 
-        Entity unit;
-        if (unloaded instanceof Entity && unloader instanceof Aero) {
-            unit = (Entity) unloaded;
-        } else {
-            return false;
-        }
-
         // must be an ASF, Small Craft, or DropShip
-        if (!unit.isAero() || unit instanceof Jumpship) {
-            return false;
-        }
-        IAero a = (IAero) unit;
-
-        Report r;
 
         // Unload the unit.
-        if (!unloader.unload(unit)) {
-            return false;
-        }
 
         // The unloaded unit is no longer being carried.
-        unit.setTransportId(Entity.NONE);
 
         // pg. 86 of TW: launched fighters can move in fire in the turn they are
         // unloaded
-        unit.setUnloaded(false);
 
         // Place the unloaded unit onto the screen.
-        unit.setPosition(pos);
 
         // Units unloaded onto the screen are deployed.
-        if (pos != null) {
-            unit.setDeployed(true);
-        }
 
         // Point the unloaded unit in the given direction.
-        unit.setFacing(facing);
-        unit.setSecondaryFacing(facing);
 
         // the velocity of the unloaded unit is the same as the loader
-        a.setCurrentVelocity(velocity);
-        a.setNextVelocity(velocity);
 
         // if using advanced movement then set vectors
-        unit.setVectors(moveVec);
-
-        unit.setAltitude(altitude);
 
         // it seems that the done button is still being set and I can't figure
         // out where
-        unit.setDone(false);
 
         // if the bonus was greater than zero then too many fighters were
         // launched and they
         // must all make control rolls
-        if (bonus > 0) {
-            PilotingRollData psr = unit.getBasePilotingRoll();
-            psr.addModifier(bonus, "safe launch rate exceeded");
-            Roll diceRoll = Compute.rollD6(2);
-            r = new Report(9375);
-            r.subject = unit.getId();
-            r.add(unit.getDisplayName());
-            r.add(psr);
-            r.add(diceRoll);
-            r.indent(1);
-
-            if (diceRoll.getIntValue() < psr.getValue()) {
-                r.choose(false);
-                addReport(r);
-                // damage the unit
-                int damage = 10 * (psr.getValue() - diceRoll.getIntValue());
-                HitData hit = unit.rollHitLocation(ToHitData.HIT_NORMAL, ToHitData.SIDE_FRONT);
-                Vector<Report> rep = damageEntity(unit, hit, damage);
-                Report.indentAll(rep, 1);
-                rep.lastElement().newlines++;
-                addReport(rep);
-                // did we destroy the unit?
-                if (unit.isDoomed()) {
-                    // Clean out the entity.
-                    unit.setDestroyed(true);
-                    game.moveToGraveyard(unit.getId());
-                    send(createRemoveEntityPacket(unit.getId()));
-                }
-            } else {
-                // avoided damage
-                r.choose(true);
-                r.newlines++;
-                addReport(r);
-            }
-        } else {
-            r = new Report(9374);
-            r.subject = unit.getId();
-            r.add(unit.getDisplayName());
-            r.indent(1);
-            r.newlines++;
-            addReport(r);
-        }
 
         // launching from an OOC vessel causes damage
         // same thing if faster than 2 velocity in atmosphere
-        if ((((Aero) unloader).isOutControlTotal() && !unit.isDoomed())
-                || ((((Aero) unloader).getCurrentVelocity() > 2) && !game
-                .getBoard().inSpace())) {
-            Roll diceRoll = Compute.rollD6(2);
-            int damage = diceRoll.getIntValue() * 10;
-            String rollCalc = damage + "[" + diceRoll.getIntValue() + " * 10]";
-            r = new Report(9385);
-            r.subject = unit.getId();
-            r.add(unit.getDisplayName());
-            r.addDataWithTooltip(rollCalc, diceRoll.getReport());
-            addReport(r);
-            HitData hit = unit.rollHitLocation(ToHitData.HIT_NORMAL, ToHitData.SIDE_FRONT);
-            addReport(damageEntity(unit, hit, damage));
-            // did we destroy the unit?
-            if (unit.isDoomed()) {
-                // Clean out the entity.
-                unit.setDestroyed(true);
-                game.moveToGraveyard(unit.getId());
-                send(createRemoveEntityPacket(unit.getId()));
-            }
-        }
 
         // Update the unloaded unit.
-        entityUpdate(unit.getId());
 
         // Set the turn mask. We need to be specific otherwise we run the risk
         // of having a unit of another class consume the turn and leave the
         // unloaded unit without a turn
-        int turnMask;
-        List<GameTurn> turnVector = game.getTurnVector();
-        if (unit instanceof Dropship) {
-            turnMask = GameTurn.CLASS_DROPSHIP;
-        } else if (unit instanceof SmallCraft) {
-            turnMask = GameTurn.CLASS_SMALL_CRAFT;
-        } else {
-            turnMask = GameTurn.CLASS_AERO;
-        }
         // Add one, otherwise we consider the turn we're currently processing
-        int turnInsertIdx = game.getTurnIndex() + 1;
         // We have to figure out where to insert this turn, to maintain proper
         // space turn order (JumpShips, Small Craft, DropShips, Aeros)
-        for (; turnInsertIdx < turnVector.size(); turnInsertIdx++) {
-            GameTurn turn = turnVector.get(turnInsertIdx);
-            if (turn.isValidEntity(unit, game)) {
-                break;
-            }
-        }
 
         // ok add another turn for the unloaded entity so that it can move
-        GameTurn newTurn = new GameTurn.EntityClassTurn(unit.getOwner().getId(), turnMask);
-        game.insertTurnAfter(newTurn, turnInsertIdx);
         // brief everybody on the turn update
-        send(createTurnVectorPacket());
 
-        return true;
+        return unitManager.launchUnit(unloader, unloaded, pos, facing, velocity, altitude, moveVec, bonus);
     }
 
     public void dropUnit(Entity drop, Entity entity, Coords curPos, int altitude) {
         // Unload the unit.
-        entity.unload(drop);
         // The unloaded unit is no longer being carried.
-        drop.setTransportId(Entity.NONE);
 
         // OK according to Welshman's pending ruling, when on the ground map
         // units should be deployed in the ring two hexes away from the DropShip
@@ -4274,92 +3829,14 @@ public class GameManager implements IGameManager {
         // Spheroid - facing
         // Aerodyne - opposite of facing
         // http://www.classicbattletech.com/forums/index.php?topic=65600.msg1568089#new
-        if (game.getBoard().onGround() && (null != curPos)) {
-            boolean selected = false;
-            int count;
-            int max = 0;
-            int facing = entity.getFacing();
-            if (entity.getMovementMode() == EntityMovementMode.AERODYNE) {
-                // no real rule for this but it seems to make sense that units
-                // would drop behind an
-                // aerodyne rather than in front of it
-                facing = (facing + 3) % 6;
-            }
-            boolean checkDanger = true;
-            while (!selected) {
-                // we can get caught in an infinite loop if all available hexes
-                // are dangerous, so check for this
-                boolean allDanger = true;
-                for (int i = 0; i < 6; i++) {
-                    int dir = (facing + i) % 6;
-                    Coords newPos = curPos.translated(dir, 2);
-                    count = 0;
-                    if (game.getBoard().contains(newPos)) {
-                        Hex newHex = game.getBoard().getHex(newPos);
-                        Building bldg = game.getBoard().getBuildingAt(newPos);
-                        boolean danger = newHex.containsTerrain(Terrains.WATER)
-                                || newHex.containsTerrain(Terrains.MAGMA)
-                                || (null != bldg);
-                        for (Entity unit : game.getEntitiesVector(newPos)) {
-                            if ((unit.getAltitude() == altitude)
-                                    && !unit.isAero()) {
-                                count++;
-                            }
-                        }
-                        if ((count <= max) && (!danger || !checkDanger)) {
-                            selected = true;
-                            curPos = newPos;
-                            break;
-                        }
-                        if (!danger) {
-                            allDanger = false;
-                        }
-                    }
-                    newPos = newPos.translated((dir + 2) % 6);
-                    count = 0;
-                    if (game.getBoard().contains(newPos)) {
-                        Hex newHex = game.getBoard().getHex(newPos);
-                        Building bldg = game.getBoard().getBuildingAt(newPos);
-                        boolean danger = newHex.containsTerrain(Terrains.WATER)
-                                || newHex.containsTerrain(Terrains.MAGMA)
-                                || (null != bldg);
-                        for (Entity unit : game.getEntitiesVector(newPos)) {
-                            if ((unit.getAltitude() == altitude) && !unit.isAero()) {
-                                count++;
-                            }
-                        }
-                        if ((count <= max) && (!danger || !checkDanger)) {
-                            selected = true;
-                            curPos = newPos;
-                            break;
-                        }
-                        if (!danger) {
-                            allDanger = false;
-                        }
-                    }
-                }
-                if (allDanger && checkDanger) {
-                    checkDanger = false;
-                } else {
-                    max++;
-                }
-            }
-        }
 
         // Place the unloaded unit onto the screen.
-        drop.setPosition(curPos);
 
         // Units unloaded onto the screen are deployed.
-        if (curPos != null) {
-            drop.setDeployed(true);
-        }
 
         // Point the unloaded unit in the given direction.
-        drop.setFacing(entity.getFacing());
-        drop.setSecondaryFacing(entity.getFacing());
 
-        drop.setAltitude(altitude);
-        entityUpdate(drop.getId());
+        unitManager.dropUnit(drop, entity, curPos, altitude);
     }
 
     /**
@@ -4419,7 +3896,7 @@ public class GameManager implements IGameManager {
                             // Clean out the dead entity.
                             entity.setDestroyed(true);
                             game.moveToGraveyard(entity.getId());
-                            send(createRemoveEntityPacket(entity.getId()));
+                            sendingManager.send(createRemoveEntityPacket(entity.getId()));
                         } else { // Infantry that aren't dead are damaged.
                             entityUpdate(entity.getId());
                         }
@@ -4432,7 +3909,7 @@ public class GameManager implements IGameManager {
 
         // Did we update the turns?
         if (bTurnsChanged) {
-            send(createTurnVectorPacket());
+            sendingManager.send(createTurnVectorPacket());
         }
 
         // Are there any building updates?
@@ -4590,24 +4067,24 @@ public class GameManager implements IGameManager {
                 if (game.getOptions().booleanOption(OptionsConstants.BASE_PUSH_OFF_BOARD)) {
                     // Yup. One dead entity.
                     game.removeEntity(entity.getId(), IEntityRemovalConditions.REMOVE_PUSHED);
-                    send(createRemoveEntityPacket(entity.getId(), IEntityRemovalConditions.REMOVE_PUSHED));
+                    sendingManager.send(createRemoveEntityPacket(entity.getId(), IEntityRemovalConditions.REMOVE_PUSHED));
                     r = new Report(2030, Report.PUBLIC);
                     r.addDesc(entity);
                     addReport(r);
 
                     for (Entity e : entity.getLoadedUnits()) {
                         game.removeEntity(e.getId(), IEntityRemovalConditions.REMOVE_PUSHED);
-                        send(createRemoveEntityPacket(e.getId(), IEntityRemovalConditions.REMOVE_PUSHED));
+                        sendingManager.send(createRemoveEntityPacket(e.getId(), IEntityRemovalConditions.REMOVE_PUSHED));
                     }
                     Entity swarmer = game.getEntity(entity.getSwarmAttackerId());
                     if (swarmer != null) {
                         if (!swarmer.isDone()) {
                             game.removeTurnFor(swarmer);
                             swarmer.setDone(true);
-                            send(createTurnVectorPacket());
+                            sendingManager.send(createTurnVectorPacket());
                         }
                         game.removeEntity(swarmer.getId(), IEntityRemovalConditions.REMOVE_PUSHED);
-                        send(createRemoveEntityPacket(swarmer.getId(), IEntityRemovalConditions.REMOVE_PUSHED));
+                        sendingManager.send(createRemoveEntityPacket(swarmer.getId(), IEntityRemovalConditions.REMOVE_PUSHED));
                     }
                     // The entity's movement is completed.
                     return true;
@@ -4790,7 +4267,7 @@ public class GameManager implements IGameManager {
                             .containsTerrain(Terrains.ICE))
                             || nextHex.containsTerrain(Terrains.WOODS)
                             || nextHex.containsTerrain(Terrains.JUNGLE)) {
-                        addReport(destroyEntity(entity, "could not land in crash site"));
+                        addReport(packetManager.destroyEntity(entity, "could not land in crash site"));
                     } else if (elevation < nextHex.terrainLevel(Terrains.BLDG_ELEV)) {
                         Building bldg = game.getBoard().getBuildingAt(nextPos);
 
@@ -4798,15 +4275,15 @@ public class GameManager implements IGameManager {
                         // before the wall not in the wall
                         // Like a building.
                         if (bldg.getType() == Building.WALL) {
-                            addReport(destroyEntity(entity, "crashed into a wall"));
+                            addReport(packetManager.destroyEntity(entity, "crashed into a wall"));
                             break;
                         }
                         if (bldg.getBldgClass() == Building.GUN_EMPLACEMENT) {
-                            addReport(destroyEntity(entity, "crashed into a gun emplacement"));
+                            addReport(packetManager.destroyEntity(entity, "crashed into a gun emplacement"));
                             break;
                         }
 
-                        addReport(destroyEntity(entity, "crashed into building"));
+                        addReport(packetManager.destroyEntity(entity, "crashed into building"));
                     } else {
                         entity.setPosition(nextPos);
                         entity.setElevation(0);
@@ -5079,13 +4556,13 @@ public class GameManager implements IGameManager {
                         if (!target.isDone()) {
                             // Dead entities don't take turns.
                             game.removeTurnFor(target);
-                            send(createTurnVectorPacket());
+                            sendingManager.send(createTurnVectorPacket());
                         } // End target-still-to-move
 
                         // Clean out the entity.
                         target.setDestroyed(true);
                         game.moveToGraveyard(target.getId());
-                        send(createRemoveEntityPacket(target.getId()));
+                        sendingManager.send(createRemoveEntityPacket(target.getId()));
                     }
                     // Update the target's position,
                     // unless it is off the game map.
@@ -5105,7 +4582,7 @@ public class GameManager implements IGameManager {
                     // Prevents adding extra turns for multi-turns
                     newTurn.setMultiTurn(true);
                     game.insertNextTurn(newTurn);
-                    send(createTurnVectorPacket());
+                    sendingManager.send(createTurnVectorPacket());
                 }
             }
 
@@ -5361,7 +4838,7 @@ public class GameManager implements IGameManager {
         if (entity.isDoomed()) {
             entity.setDestroyed(true);
             game.moveToGraveyard(entity.getId());
-            send(createRemoveEntityPacket(entity.getId()));
+            sendingManager.send(createRemoveEntityPacket(entity.getId()));
 
             // The entity's movement is completed.
             return true;
@@ -5611,7 +5088,7 @@ public class GameManager implements IGameManager {
                         vel--;
                     }
                     game.removeTurnFor(target);
-                    send(createTurnVectorPacket());
+                    sendingManager.send(createTurnVectorPacket());
                     processingManager.processMovement(target, md, null);
                     // for some reason it is not clearing out turn
                 } else {
@@ -5653,12 +5130,12 @@ public class GameManager implements IGameManager {
             if (!target.isDone()) {
                 // Dead entities don't take turns.
                 game.removeTurnFor(target);
-                send(createTurnVectorPacket());
+                sendingManager.send(createTurnVectorPacket());
             } // End target-still-to-move
             // Clean out the entity.
             target.setDestroyed(true);
             game.moveToGraveyard(target.getId());
-            send(createRemoveEntityPacket(target.getId()));
+            sendingManager.send(createRemoveEntityPacket(target.getId()));
         }
         // Update the target's position,
         // unless it is off the game map.
@@ -6051,7 +5528,7 @@ public class GameManager implements IGameManager {
                 rider.setDone(true);
                 carrier.setSwarmAttackerId(Entity.NONE);
                 rider.setSwarmTargetId(Entity.NONE);
-            } else if (!unloadUnit(carrier, rider, curPos, curFacing, 0)) {
+            } else if (!unitManager.unloadUnit(carrier, rider, curPos, curFacing, 0)) {
                 LogManager.getLogger().error("Server was told to unload "
                         + rider.getDisplayName() + " from "
                         + carrier.getDisplayName() + " into "
@@ -6133,7 +5610,7 @@ public class GameManager implements IGameManager {
                             if (p.getId() == hidden.getOwnerId()) {
                                 continue;
                             }
-                            send(p.getId(), new Packet(PacketCommand.CLIENT_FEEDBACK_REQUEST,
+                            sendingManager.send(p.getId(), new Packet(PacketCommand.CLIENT_FEEDBACK_REQUEST,
                                     PacketCommand.CFR_HIDDEN_PBS, Entity.NONE, Entity.NONE));
                         }
                         // Update all clients with the position of the PBS
@@ -6162,7 +5639,7 @@ public class GameManager implements IGameManager {
                         // If we added new hexes, send them to all players.
                         // These are spotlights at night, you know they're there.
                         if (hexesAdded) {
-                            send(createIlluminatedHexesPacket());
+                            sendingManager.send(createIlluminatedHexesPacket());
                         }
                         SearchlightAttackAction saa = (SearchlightAttackAction) ea;
                         addReport(saa.resolveAction(game));
@@ -6281,10 +5758,10 @@ public class GameManager implements IGameManager {
                     minefield = Minefield.createMinefield(mfCoord, playerId,
                             Minefield.TYPE_CONVENTIONAL, hexDamage);
                     game.addMinefield(minefield);
-                    checkForRevealMinefield(minefield, game.getEntity(entityId));
+                    minefieldManager.checkForRevealMinefield(minefield, game.getEntity(entityId));
                 } else if (minefield.getDensity() < Minefield.MAX_DAMAGE) {
                     // Yup. Replace the old one.
-                    removeMinefield(minefield);
+                    minefieldManager.removeMinefield(minefield);
                     hexDamage += minefield.getDensity();
 
                     // Damage from Thunder minefields are capped.
@@ -6293,7 +5770,7 @@ public class GameManager implements IGameManager {
                     }
                     minefield.setDensity(hexDamage);
                     game.addMinefield(minefield);
-                    checkForRevealMinefield(minefield, game.getEntity(entityId));
+                    minefieldManager.checkForRevealMinefield(minefield, game.getEntity(entityId));
                 }
             }
         }
@@ -6323,16 +5800,16 @@ public class GameManager implements IGameManager {
         if (minefield == null) {
             minefield = Minefield.createMinefield(coords, playerId, Minefield.TYPE_CONVENTIONAL, damage);
             game.addMinefield(minefield);
-            checkForRevealMinefield(minefield, game.getEntity(entityId));
+            minefieldManager.checkForRevealMinefield(minefield, game.getEntity(entityId));
         } else if (minefield.getDensity() < Minefield.MAX_DAMAGE) {
             // Add to the old one
-            removeMinefield(minefield);
+            minefieldManager.removeMinefield(minefield);
             int oldDamage = minefield.getDensity();
             damage += oldDamage;
             damage = Math.min(damage, Minefield.MAX_DAMAGE);
             minefield.setDensity(damage);
             game.addMinefield(minefield);
-            checkForRevealMinefield(minefield, game.getEntity(entityId));
+            minefieldManager.checkForRevealMinefield(minefield, game.getEntity(entityId));
         }
     }
 
@@ -6360,16 +5837,16 @@ public class GameManager implements IGameManager {
         if (minefield == null) {
             minefield = Minefield.createMinefield(coords, playerId, Minefield.TYPE_INFERNO, damage);
             game.addMinefield(minefield);
-            checkForRevealMinefield(minefield, game.getEntity(entityId));
+            minefieldManager.checkForRevealMinefield(minefield, game.getEntity(entityId));
         } else if (minefield.getDensity() < Minefield.MAX_DAMAGE) {
             // Add to the old one
-            removeMinefield(minefield);
+            minefieldManager.removeMinefield(minefield);
             int oldDamage = minefield.getDensity();
             damage += oldDamage;
             damage = Math.min(damage, Minefield.MAX_DAMAGE);
             minefield.setDensity(damage);
             game.addMinefield(minefield);
-            checkForRevealMinefield(minefield, game.getEntity(entityId));
+            minefieldManager.checkForRevealMinefield(minefield, game.getEntity(entityId));
         }
     }
 
@@ -6394,16 +5871,16 @@ public class GameManager implements IGameManager {
                 minefield = Minefield.createMinefield(coords, playerId,
                         Minefield.TYPE_CONVENTIONAL, damage);
                 game.addMinefield(minefield);
-                checkForRevealMinefield(minefield, game.getEntity(entityId));
+                minefieldManager.checkForRevealMinefield(minefield, game.getEntity(entityId));
             } else if (minefield.getDensity() < Minefield.MAX_DAMAGE) {
                 // Add to the old one.
-                removeMinefield(minefield);
+                minefieldManager.removeMinefield(minefield);
                 int oldDamage = minefield.getDensity();
                 damage += oldDamage;
                 damage = Math.min(damage, Minefield.MAX_DAMAGE);
                 minefield.setDensity(damage);
                 game.addMinefield(minefield);
-                checkForRevealMinefield(minefield, game.getEntity(entityId));
+                minefieldManager.checkForRevealMinefield(minefield, game.getEntity(entityId));
             }
         }
     }
@@ -6431,16 +5908,16 @@ public class GameManager implements IGameManager {
         if (minefield == null) {
             minefield = Minefield.createMinefield(coords, playerId, Minefield.TYPE_ACTIVE, damage);
             game.addMinefield(minefield);
-            checkForRevealMinefield(minefield, game.getEntity(entityId));
+            minefieldManager.checkForRevealMinefield(minefield, game.getEntity(entityId));
         } else if (minefield.getDensity() < Minefield.MAX_DAMAGE) {
             // Add to the old one
-            removeMinefield(minefield);
+            minefieldManager.removeMinefield(minefield);
             int oldDamage = minefield.getDensity();
             damage += oldDamage;
             damage = Math.min(damage, Minefield.MAX_DAMAGE);
             minefield.setDensity(damage);
             game.addMinefield(minefield);
-            checkForRevealMinefield(minefield, game.getEntity(entityId));
+            minefieldManager.checkForRevealMinefield(minefield, game.getEntity(entityId));
         }
     }
 
@@ -6466,17 +5943,17 @@ public class GameManager implements IGameManager {
                     Minefield.TYPE_VIBRABOMB, damage, sensitivity);
             game.addMinefield(minefield);
             game.addVibrabomb(minefield);
-            checkForRevealMinefield(minefield, game.getEntity(entityId));
+            minefieldManager.checkForRevealMinefield(minefield, game.getEntity(entityId));
         } else if (minefield.getDensity() < Minefield.MAX_DAMAGE) {
             // Add to the old one
-            removeMinefield(minefield);
+            minefieldManager.removeMinefield(minefield);
             int oldDamage = minefield.getDensity();
             damage += oldDamage;
             damage = Math.min(damage, Minefield.MAX_DAMAGE);
             minefield.setDensity(damage);
             game.addMinefield(minefield);
             game.addVibrabomb(minefield);
-            checkForRevealMinefield(minefield, game.getEntity(entityId));
+            minefieldManager.checkForRevealMinefield(minefield, game.getEntity(entityId));
         }
     }
 
@@ -6737,7 +6214,7 @@ public class GameManager implements IGameManager {
         }
         // set velocity and heading the same as parent entity
         game.addEntity(tele);
-        send(createAddEntityPacket(tele.getId()));
+        sendingManager.send(createAddEntityPacket(tele.getId()));
         // make him not get a move this turn
         tele.setDone(true);
         // place on board
@@ -7073,7 +6550,7 @@ public class GameManager implements IGameManager {
                                     && ftr.isCondEjectSIDest()))) {
                                 vPhaseReport.addAll(ejectEntity(te, true, false));
                             }
-                            vPhaseReport.addAll(destroyEntity(te,"Structural Integrity Collapse"));
+                            vPhaseReport.addAll(packetManager.destroyEntity(te, "Structural Integrity Collapse"));
                             ftr.setSI(0);
                             if (null != ae) {
                                 creditKill(te, ae);
@@ -7190,7 +6667,7 @@ public class GameManager implements IGameManager {
      */
     protected boolean enterMinefield(Entity entity, Coords c, int curElev, boolean isOnGround,
                                      Vector<Report> vMineReport) {
-        return enterMinefield(entity, c, curElev, isOnGround, vMineReport, -1);
+        return minefieldManager.enterMinefield(entity, c, curElev, isOnGround, vMineReport);
     }
 
     /**
@@ -7216,231 +6693,13 @@ public class GameManager implements IGameManager {
      */
     private boolean enterMinefield(Entity entity, Coords c, int curElev, boolean isOnGround,
                                    Vector<Report> vMineReport, int target) {
-        Report r;
-        boolean trippedMine = false;
         // flying units cannot trip a mine
-        if (curElev > 0) {
-            return false;
-        }
 
         // Check for Mine sweepers
-        Mounted minesweeper = null;
-        for (Mounted m : entity.getMisc()) {
-            if (m.getType().hasFlag(MiscType.F_MINESWEEPER) && m.isReady() && (m.getArmorValue() > 0)) {
-                minesweeper = m;
-                break; // Can only have one minesweeper
-            }
-        }
 
-        Vector<Minefield> fieldsToRemove = new Vector<>();
         // loop through mines in this hex
-        for (Minefield mf : game.getMinefields(c)) {
-            // vibrabombs are handled differently
-            if (mf.getType() == Minefield.TYPE_VIBRABOMB) {
-                continue;
-            }
 
-            // if we are in the water, then the sea mine will only blow up if at
-            // the right depth
-            if (game.getBoard().getHex(mf.getCoords()).containsTerrain(Terrains.WATER)) {
-                if ((Math.abs(curElev) != mf.getDepth())
-                        && (Math.abs(curElev + entity.getHeight()) != mf.getDepth())) {
-                    continue;
-                }
-            }
-
-            // Check for mine-sweeping. Vibramines handled elsewhere
-            if ((minesweeper != null)
-                    && ((mf.getType() == Minefield.TYPE_CONVENTIONAL)
-                    || (mf.getType() == Minefield.TYPE_ACTIVE)
-                    || (mf.getType() == Minefield.TYPE_INFERNO))) {
-                // Check to see if the minesweeper clears
-                Roll diceRoll = Compute.rollD6(2);
-
-                // Report minefield roll
-                if (doBlind()) { // only report if DB, otherwise all players see
-                    r = new Report(2152, Report.PLAYER);
-                    r.player = mf.getPlayerId();
-                    r.add(Minefield.getDisplayableName(mf.getType()));
-                    r.add(mf.getCoords().getBoardNum());
-                    r.add(diceRoll);
-                    r.newlines = 0;
-                    vMineReport.add(r);
-                }
-
-                if (diceRoll.getIntValue() >= 6) {
-                    // Report hit
-                    if (doBlind()) {
-                        r = new Report(5543, Report.PLAYER);
-                        r.player = mf.getPlayerId();
-                        vMineReport.add(r);
-                    }
-
-                    // Clear the minefield
-                    r = new Report(2158);
-                    r.subject = entity.getId();
-                    r.add(entity.getShortName(), true);
-                    r.add(Minefield.getDisplayableName(mf.getType()), true);
-                    r.add(mf.getCoords().getBoardNum(), true);
-                    r.indent();
-                    vMineReport.add(r);
-                    fieldsToRemove.add(mf);
-
-                    // Handle armor value damage
-                    int remainingAV = minesweeper.getArmorValue() - 6;
-                    minesweeper.setArmorValue(Math.max(remainingAV, 0));
-
-                    r = new Report(2161);
-                    r.indent(2);
-                    r.subject = entity.getId();
-                    r.add(entity.getShortName(), true);
-                    r.add(6);
-                    r.add(Math.max(remainingAV, 0));
-                    vMineReport.add(r);
-
-                    if (remainingAV <= 0) {
-                        minesweeper.setDestroyed(true);
-                    }
-                    // Check for damage transfer
-                    if (remainingAV < 0) {
-                        int damage = Math.abs(remainingAV);
-                        r = new Report(2162);
-                        r.indent(2);
-                        r.subject = entity.getId();
-                        r.add(damage, true);
-                        vMineReport.add(r);
-
-                        // Damage is dealt to the location of minesweeper
-                        HitData hit = new HitData(minesweeper.getLocation());
-                        Vector<Report> damageReports = damageEntity(entity, hit, damage);
-                        for (Report r1 : damageReports) {
-                            r1.indent(1);
-                        }
-                        vMineReport.addAll(damageReports);
-                    }
-                    Report.addNewline(vMineReport);
-                    // If the minefield is cleared, we're done processing it
-                    continue;
-                } else {
-                    // Report miss
-                    if (doBlind()) {
-                        r = new Report(5542, Report.PLAYER);
-                        r.player = mf.getPlayerId();
-                        vMineReport.add(r);
-                    }
-                }
-            }
-
-            // check whether we have an active mine
-            if ((mf.getType() == Minefield.TYPE_ACTIVE) && isOnGround) {
-                continue;
-            } else if ((mf.getType() != Minefield.TYPE_ACTIVE) && !isOnGround) {
-                continue;
-            }
-
-            // set the target number
-            if (target == -1) {
-                target = mf.getTrigger();
-                if (mf.getType() == Minefield.TYPE_ACTIVE) {
-                    target = 9;
-                }
-                if (entity instanceof Infantry) {
-                    target += 1;
-                }
-                if (entity.hasAbility(OptionsConstants.MISC_EAGLE_EYES)) {
-                    target += 2;
-                }
-                if ((entity.getMovementMode() == EntityMovementMode.HOVER)
-                        || (entity.getMovementMode() == EntityMovementMode.WIGE)) {
-                    target = Minefield.HOVER_WIGE_DETONATION_TARGET;
-                }
-            }
-
-            Roll diceRoll = Compute.rollD6(2);
-
-            // Report minefield roll
-            if (doBlind()) { // Only do if DB, otherwise all players will see
-                r = new Report(2151, Report.PLAYER);
-                r.player = mf.getPlayerId();
-                r.add(Minefield.getDisplayableName(mf.getType()));
-                r.add(mf.getCoords().getBoardNum());
-                r.add(target);
-                r.add(diceRoll);
-                r.newlines = 0;
-                vMineReport.add(r);
-            }
-
-            if (diceRoll.getIntValue() < target) {
-                // Report miss
-                if (doBlind()) {
-                    r = new Report(2217, Report.PLAYER);
-                    r.player = mf.getPlayerId();
-                    vMineReport.add(r);
-                }
-                continue;
-            }
-
-            // Report hit
-            if (doBlind()) {
-                r = new Report(2270, Report.PLAYER);
-                r.player = mf.getPlayerId();
-                vMineReport.add(r);
-            }
-
-            // apply damage
-            trippedMine = true;
-            // explodedMines.add(mf);
-            mf.setDetonated(true);
-            if (mf.getType() == Minefield.TYPE_INFERNO) {
-                // report hitting an inferno mine
-                r = new Report(2155);
-                r.subject = entity.getId();
-                r.add(entity.getShortName(), true);
-                r.add(mf.getCoords().getBoardNum(), true);
-                r.indent();
-                vMineReport.add(r);
-                vMineReport.addAll(deliverInfernoMissiles(entity, entity, mf.getDensity() / 2));
-            } else {
-                r = new Report(2150);
-                r.subject = entity.getId();
-                r.add(entity.getShortName(), true);
-                r.add(mf.getCoords().getBoardNum(), true);
-                r.indent();
-                vMineReport.add(r);
-                int damage = mf.getDensity();
-                while (damage > 0) {
-                    int cur_damage = Math.min(5, damage);
-                    damage = damage - cur_damage;
-                    HitData hit;
-                    if (minesweeper == null) {
-                        hit = entity.rollHitLocation(Minefield.TO_HIT_TABLE,
-                                Minefield.TO_HIT_SIDE);
-                    } else { // Minesweepers cause mines to hit minesweeper loc
-                        hit = new HitData(minesweeper.getLocation());
-                    }
-                    vMineReport.addAll(damageEntity(entity, hit, cur_damage));
-                }
-
-                if (entity instanceof Tank) {
-                    // Tanks check for motive system damage from minefields as
-                    // from a side hit even though the damage proper hits the
-                    // front above; exact side doesn't matter, though.
-                    vMineReport.addAll(vehicleMotiveDamage((Tank) entity,
-                            entity.getMotiveSideMod(ToHitData.SIDE_LEFT)));
-                }
-                Report.addNewline(vMineReport);
-            }
-
-            // check the direct reduction
-            mf.checkReduction(0, true);
-            revealMinefield(mf);
-        }
-
-        for (Minefield mf : fieldsToRemove) {
-            removeMinefield(mf);
-        }
-
-        return trippedMine;
+        return minefieldManager.enterMinefield(entity, c, curElev, isOnGround, vMineReport, target);
     }
 
     /**
@@ -7449,48 +6708,7 @@ public class GameManager implements IGameManager {
      * false, and removes any mines whose density has been reduced to zero.
      */
     protected void resetMines() {
-        Enumeration<Coords> mineLoc = game.getMinedCoords();
-        while (mineLoc.hasMoreElements()) {
-            Coords c = mineLoc.nextElement();
-            Enumeration<Minefield> minefields = game.getMinefields(c).elements();
-            while (minefields.hasMoreElements()) {
-                Minefield minefield = minefields.nextElement();
-                if (minefield.hasDetonated()) {
-                    minefield.setDetonated(false);
-                    Enumeration<Minefield> otherMines = game.getMinefields(c).elements();
-                    while (otherMines.hasMoreElements()) {
-                        Minefield otherMine = otherMines.nextElement();
-                        if (otherMine.equals(minefield)) {
-                            continue;
-                        }
-                        int bonus = 0;
-                        if (otherMine.getDensity() > minefield.getDensity()) {
-                            bonus = 1;
-                        }
-                        if (otherMine.getDensity() < minefield.getDensity()) {
-                            bonus = -1;
-                        }
-                        otherMine.checkReduction(bonus, false);
-                    }
-                }
-            }
-            // cycle through a second time to see if any mines at these coords
-            // need to be removed
-            List<Minefield> mfRemoved = new ArrayList<>();
-            Enumeration<Minefield> mines = game.getMinefields(c).elements();
-            while (mines.hasMoreElements()) {
-                Minefield mine = mines.nextElement();
-                if (mine.getDensity() < 5) {
-                    mfRemoved.add(mine);
-                }
-            }
-            // we have to do it this way to avoid a concurrent error problem
-            for (Minefield mf : mfRemoved) {
-                removeMinefield(mf);
-            }
-            // update the mines at these coords
-            sendChangedMines(c);
-        }
+        minefieldManager.resetMines();
     }
 
     /**
@@ -7503,12 +6721,12 @@ public class GameManager implements IGameManager {
      */
     public boolean clearMinefield(Minefield mf, Entity en, int target,
                                   Vector<Report> vClearReport) {
-        return clearMinefield(mf, en, target, -1, vClearReport, 2);
+        return minefieldManager.clearMinefield(mf, en, target, vClearReport);
     }
 
     public boolean clearMinefield(Minefield mf, Entity en, int target,
                                   int botch, Vector<Report> vClearReport) {
-        return clearMinefield(mf, en, target, botch, vClearReport, 1);
+        return minefieldManager.clearMinefield(mf, en, target, botch, vClearReport);
     }
 
     /**
@@ -7531,83 +6749,16 @@ public class GameManager implements IGameManager {
      */
     public boolean clearMinefield(Minefield mf, Entity en, int target,
                                   int botch, Vector<Report> vClearReport, int indent) {
-        Report r;
-        Roll diceRoll = Compute.rollD6(2);
 
-        if (diceRoll.getIntValue() >= target) {
-            r = new Report(2250);
-            r.subject = en.getId();
-            r.add(Minefield.getDisplayableName(mf.getType()));
-            r.add(target);
-            r.add(diceRoll);
-            r.indent(indent);
-            vClearReport.add(r);
-            return true;
-        } else if (diceRoll.getIntValue() <= botch) {
-            // TODO : detonate the minefield
-            r = new Report(2255);
-            r.subject = en.getId();
-            r.indent(indent);
-            r.add(Minefield.getDisplayableName(mf.getType()));
-            r.add(target);
-            r.add(diceRoll);
-            vClearReport.add(r);
-            // The detonation damages any units that were also attempting to
-            // clear mines in the same hex
-            for (Entity victim : game.getEntitiesVector(mf.getCoords())) {
-                Report rVictim;
-                if (victim.isClearingMinefield()) {
-                    rVictim = new Report(2265);
-                    rVictim.subject = victim.getId();
-                    rVictim.add(victim.getShortName(), true);
-                    rVictim.indent(indent + 1);
-                    vClearReport.add(rVictim);
-                    int damage = mf.getDensity();
-                    while (damage > 0) {
-                        int cur_damage = Math.min(5, damage);
-                        damage = damage - cur_damage;
-                        HitData hit = victim.rollHitLocation(
-                                Minefield.TO_HIT_TABLE, Minefield.TO_HIT_SIDE);
-                        vClearReport.addAll(damageEntity(victim, hit, cur_damage));
-                    }
-                }
-            }
-            // reduction works differently here
-            if (mf.getType() == Minefield.TYPE_CONVENTIONAL) {
-                mf.setDensity(Math.max(5, mf.getDensity() - 5));
-            } else {
-                // congratulations, you cleared the mine by blowing yourself up
-                return true;
-            }
-        } else {
-            // failure
-            r = new Report(2260);
-            r.subject = en.getId();
-            r.indent(indent);
-            r.add(Minefield.getDisplayableName(mf.getType()));
-            r.add(target);
-            r.add(diceRoll);
-            vClearReport.add(r);
-        }
-        return false;
+        return minefieldManager.clearMinefield(mf, en, target, botch, vClearReport, indent);
     }
 
     /**
      * Clear any detonated mines at these coords
      */
     private void clearDetonatedMines(Coords c, int target) {
-        Enumeration<Minefield> minefields = game.getMinefields(c).elements();
-        List<Minefield> mfRemoved = new ArrayList<>();
-        while (minefields.hasMoreElements()) {
-            Minefield minefield = minefields.nextElement();
-            if (minefield.hasDetonated() && (Compute.d6(2) >= target)) {
-                mfRemoved.add(minefield);
-            }
-        }
         // we have to do it this way to avoid a concurrent error problem
-        for (Minefield mf : mfRemoved) {
-            removeMinefield(mf);
-        }
+        minefieldManager.clearDetonatedMines(c, target);
     }
 
     /**
@@ -7615,7 +6766,7 @@ public class GameManager implements IGameManager {
      */
     private boolean checkVibrabombs(Entity entity, Coords coords, boolean displaced,
                                     Vector<Report> vMineReport) {
-        return checkVibrabombs(entity, coords, displaced, null, null, vMineReport);
+        return minefieldManager.checkVibrabombs(entity, coords, displaced, vMineReport);
     }
 
     /**
@@ -7623,161 +6774,16 @@ public class GameManager implements IGameManager {
      */
     public boolean checkVibrabombs(Entity entity, Coords coords, boolean displaced, Coords lastPos,
                                    Coords curPos, Vector<Report> vMineReport) {
-        int mass = (int) entity.getWeight();
 
         // Check for Mine sweepers
-        Mounted minesweeper = null;
-        for (Mounted m : entity.getMisc()) {
-            if (m.getType().hasFlag(MiscType.F_MINESWEEPER) && m.isReady() && (m.getArmorValue() > 0)) {
-                minesweeper = m;
-                break; // Can only have one minesweeper
-            }
-        }
 
         // Check for minesweepers sweeping VB minefields
-        if (minesweeper != null) {
-            Vector<Minefield> fieldsToRemove = new Vector<>();
-            for (Minefield mf : game.getVibrabombs()) {
-                // Ignore mines if they aren't in this position
-                if (!mf.getCoords().equals(coords)) {
-                    continue;
-                }
 
-                // Minesweepers on units within 9 tons of the vibrafield setting
-                // automatically clear the minefield
-                if (Math.abs(mass - mf.getSetting()) < 10) {
-                    // Clear the minefield
-                    Report r = new Report(2158);
-                    r.subject = entity.getId();
-                    r.add(entity.getShortName(), true);
-                    r.add(Minefield.getDisplayableName(mf.getType()), true);
-                    r.add(mf.getCoords().getBoardNum(), true);
-                    r.indent();
-                    vMineReport.add(r);
-                    fieldsToRemove.add(mf);
-
-                    // Handle armor value damage
-                    int remainingAV = minesweeper.getArmorValue() - 10;
-                    minesweeper.setArmorValue(Math.max(remainingAV, 0));
-
-                    r = new Report(2161);
-                    r.indent(2);
-                    r.subject = entity.getId();
-                    r.add(entity.getShortName(), true);
-                    r.add(10);
-                    r.add(Math.max(remainingAV, 0));
-                    vMineReport.add(r);
-
-                    if (remainingAV <= 0) {
-                        minesweeper.setDestroyed(true);
-                    }
-                    // Check for damage transfer
-                    if (remainingAV < 0) {
-                        int damage = Math.abs(remainingAV);
-                        r = new Report(2162);
-                        r.indent(2);
-                        r.subject = entity.getId();
-                        r.add(damage, true);
-                        vMineReport.add(r);
-
-                        // Damage is dealt to the location of minesweeper
-                        HitData hit = new HitData(minesweeper.getLocation());
-                        Vector<Report> damageReports = damageEntity(entity, hit, damage);
-                        for (Report r1 : damageReports) {
-                            r1.indent(1);
-                        }
-                        vMineReport.addAll(damageReports);
-                        entity.applyDamage();
-                    }
-                    Report.addNewline(vMineReport);
-                }
-            }
-            for (Minefield mf : fieldsToRemove) {
-                removeMinefield(mf);
-            }
-        }
-
-        boolean boom = false;
         // Only mechs can set off vibrabombs. QuadVees should only be able to set off a
         // vibrabomb in Mech mode. Those that are converting to or from Mech mode should
         // are using leg movement and should be able to set them off.
-        if (!(entity instanceof Mech) || (entity instanceof QuadVee
-                && (entity.getConversionMode() == QuadVee.CONV_MODE_VEHICLE)
-                && !entity.isConvertingNow())) {
-            return false;
-        }
 
-        Enumeration<Minefield> e = game.getVibrabombs().elements();
-
-        while (e.hasMoreElements()) {
-            Minefield mf = e.nextElement();
-
-            // Bug 954272: Mines shouldn't work underwater, and BMRr says
-            // Vibrabombs are mines
-            if (game.getBoard().getHex(mf.getCoords()).containsTerrain(Terrains.WATER)
-                    && !game.getBoard().getHex(mf.getCoords()).containsTerrain(Terrains.PAVEMENT)
-                    && !game.getBoard().getHex(mf.getCoords()).containsTerrain(Terrains.ICE)) {
-                continue;
-            }
-
-            // Mech weighing 10 tons or less can't set off the bomb
-            if (mass <= (mf.getSetting() - 10)) {
-                continue;
-            }
-
-            int effectiveDistance = (mass - mf.getSetting()) / 10;
-            int actualDistance = coords.distance(mf.getCoords());
-
-            if (actualDistance <= effectiveDistance) {
-                Report r = new Report(2156);
-                r.subject = entity.getId();
-                r.add(entity.getShortName(), true);
-                r.add(mf.getCoords().getBoardNum(), true);
-                vMineReport.add(r);
-
-                // if the moving entity is not actually moving into the vibrabomb
-                // hex, it won't get damaged
-                Integer excludeEntityID = null;
-                if (!coords.equals(mf.getCoords())) {
-                    excludeEntityID = entity.getId();
-                }
-
-                explodeVibrabomb(mf, vMineReport, excludeEntityID);
-            }
-
-            // Hack; when moving, the Mech isn't in the hex during
-            // the movement.
-            if (!displaced && (actualDistance == 0)) {
-                // report getting hit by vibrabomb
-                Report r = new Report(2160);
-                r.subject = entity.getId();
-                r.add(entity.getShortName(), true);
-                vMineReport.add(r);
-                int damage = mf.getDensity();
-                while (damage > 0) {
-                    int cur_damage = Math.min(5, damage);
-                    damage = damage - cur_damage;
-                    HitData hit = entity.rollHitLocation(Minefield.TO_HIT_TABLE, Minefield.TO_HIT_SIDE);
-                    vMineReport.addAll(damageEntity(entity, hit, cur_damage));
-                }
-                vMineReport.addAll(resolvePilotingRolls(entity, true, lastPos, curPos));
-                // we need to apply Damage now, in case the entity lost a leg,
-                // otherwise it won't get a leg missing mod if it hasn't yet
-                // moved and lost a leg, see bug 1071434 for an example
-                entity.applyDamage();
-            }
-
-            // don't check for reduction until the end or units in the same hex
-            // through
-            // movement will get the reduced damage
-            if (mf.hasDetonated()) {
-                boom = true;
-                mf.checkReduction(0, true);
-                revealMinefield(mf);
-            }
-
-        }
-        return boom;
+        return minefieldManager.checkVibrabombs(entity, coords, displaced, lastPos, curPos, vMineReport);
     }
 
     /**
@@ -7786,16 +6792,8 @@ public class GameManager implements IGameManager {
      * @param mf The <code>Minefield</code> to remove
      */
     public void removeMinefield(Minefield mf) {
-        if (game.containsVibrabomb(mf)) {
-            game.removeVibrabomb(mf);
-        }
-        game.removeMinefield(mf);
 
-        Enumeration<Player> players = game.getPlayers();
-        while (players.hasMoreElements()) {
-            Player player = players.nextElement();
-            removeMinefield(player, mf);
-        }
+        minefieldManager.removeMinefield(mf);
     }
 
     /**
@@ -7805,10 +6803,7 @@ public class GameManager implements IGameManager {
      * @param mf     The <code>Minefield</code> to be removed
      */
     private void removeMinefield(Player player, Minefield mf) {
-        if (player.containsMinefield(mf)) {
-            player.removeMinefield(mf);
-            send(player.getId(), new Packet(PacketCommand.REMOVE_MINEFIELD, mf));
-        }
+        minefieldManager.removeMinefield(player, mf);
     }
 
     /**
@@ -7817,7 +6812,7 @@ public class GameManager implements IGameManager {
      * @param mf The <code>Minefield</code> to be revealed
      */
     private void revealMinefield(Minefield mf) {
-        game.getTeams().forEach(team -> revealMinefield(team, mf));
+        minefieldManager.revealMinefield(mf);
     }
 
     /**
@@ -7827,12 +6822,7 @@ public class GameManager implements IGameManager {
      * @param mf   The <code>Minefield</code> to be revealed
      */
     public void revealMinefield(Team team, Minefield mf) {
-        for (Player player : team.players()) {
-            if (!player.containsMinefield(mf)) {
-                player.addMinefield(mf);
-                send(player.getId(), new Packet(PacketCommand.REVEAL_MINEFIELD, mf));
-            }
-        }
+        minefieldManager.revealMinefield(team, mf);
     }
 
     /**
@@ -7840,16 +6830,8 @@ public class GameManager implements IGameManager {
      * If on a team, does it for the whole team. Otherwise, just the player.
      */
     public void revealMinefield(Player player, Minefield mf) {
-        Team team = game.getTeamForPlayer(player);
 
-        if (team != null) {
-            revealMinefield(team, mf);
-        } else {
-            if (!player.containsMinefield(mf)) {
-                player.addMinefield(mf);
-                send(player.getId(), new Packet(PacketCommand.REVEAL_MINEFIELD, mf));
-            }
-        }
+        minefieldManager.revealMinefield(player, mf);
     }
 
     /**
@@ -7860,50 +6842,7 @@ public class GameManager implements IGameManager {
         // loop through each team and determine if they can see the mine, then
         // loop through players on team
         // and reveal the mine
-        for (Team team : game.getTeams()) {
-            boolean canSee = false;
-
-            // the players own team can always see the mine
-            if (team.equals(game.getTeamForPlayer(game.getPlayer(mf.getPlayerId())))) {
-                canSee = true;
-            } else {
-                // need to loop through all entities on this team and find the
-                // one with the best shot of seeing
-                // the mine placement
-                int target = Integer.MAX_VALUE;
-                Iterator<Entity> entities = game.getEntities();
-                while (entities.hasNext()) {
-                    Entity en = entities.next();
-                    // are we on the right team?
-                    if (!team.equals(game.getTeamForPlayer(en.getOwner()))) {
-                        continue;
-                    }
-                    if (LosEffects.calculateLOS(game, en,
-                            new HexTarget(mf.getCoords(), Targetable.TYPE_HEX_CLEAR)).canSee()) {
-                        target = 0;
-                        break;
-                    }
-                    LosEffects los = LosEffects.calculateLOS(game, en, layer);
-                    if (los.canSee()) {
-                        // TODO : need to add mods
-                        ToHitData current = new ToHitData(4, "base");
-                        current.append(Compute.getAttackerMovementModifier(game, en.getId()));
-                        current.append(Compute.getTargetMovementModifier(game, layer.getId()));
-                        current.append(los.losModifiers(game));
-                        if (current.getValue() < target) {
-                            target = current.getValue();
-                        }
-                    }
-                }
-
-                if (Compute.d6(2) >= target) {
-                    canSee = true;
-                }
-            }
-            if (canSee) {
-                revealMinefield(team, mf);
-            }
-        }
+        minefieldManager.checkForRevealMinefield(mf, layer);
     }
 
     /**
@@ -7911,7 +6850,7 @@ public class GameManager implements IGameManager {
      *
      * @param mf The <code>Minefield</code> to explode
      */
-    private void explodeVibrabomb(Minefield mf, Vector<Report> vBoomReport, Integer entityToExclude) {
+    protected void explodeVibrabomb(Minefield mf, Vector<Report> vBoomReport, Integer entityToExclude) {
         Iterator<Entity> targets = game.getEntities(mf.getCoords());
         Report r;
 
@@ -8483,7 +7422,7 @@ public class GameManager implements IGameManager {
         if (!swarmer.isDone()) {
             game.removeTurnFor(swarmer);
             swarmer.setDone(true);
-            send(createTurnVectorPacket());
+            sendingManager.send(createTurnVectorPacket());
         }
 
         // Update the report and cause a fall.
@@ -8851,12 +7790,12 @@ public class GameManager implements IGameManager {
                 // May need to remove a turn for this Entity
                 if (game.getPhase().isMovement() && !entity.isDone() && (turnsRemoved == 0)) {
                     game.removeTurnFor(entity);
-                    send(createTurnVectorPacket());
+                    sendingManager.send(createTurnVectorPacket());
                 } else if (turnsRemoved > 0) {
-                    send(createTurnVectorPacket());
+                    sendingManager.send(createTurnVectorPacket());
                 }
                 game.removeEntity(entity.getId(), IEntityRemovalConditions.REMOVE_PUSHED);
-                send(createRemoveEntityPacket(entity.getId(), IEntityRemovalConditions.REMOVE_PUSHED));
+                sendingManager.send(createRemoveEntityPacket(entity.getId(), IEntityRemovalConditions.REMOVE_PUSHED));
                 // entity forced from the field
                 r = new Report(2230);
                 r.subject = entity.getId();
@@ -9112,48 +8051,48 @@ public class GameManager implements IGameManager {
     }
 
     private void sendDominoEffectCFR(Entity e) {
-        send(e.getOwnerId(), new Packet(PacketCommand.CLIENT_FEEDBACK_REQUEST,
+        sendingManager.send(e.getOwnerId(), new Packet(PacketCommand.CLIENT_FEEDBACK_REQUEST,
                 PacketCommand.CFR_DOMINO_EFFECT, e.getId()));
     }
 
     private void sendAMSAssignCFR(Entity e, Mounted ams, List<WeaponAttackAction> waas) {
-        send(e.getOwnerId(), new Packet(PacketCommand.CLIENT_FEEDBACK_REQUEST,
+        sendingManager.send(e.getOwnerId(), new Packet(PacketCommand.CLIENT_FEEDBACK_REQUEST,
                 PacketCommand.CFR_AMS_ASSIGN, e.getId(), e.getEquipmentNum(ams), waas));
     }
 
     private void sendAPDSAssignCFR(Entity e, List<Integer> apdsDists, List<WeaponAttackAction> waas) {
-        send(e.getOwnerId(), new Packet(PacketCommand.CLIENT_FEEDBACK_REQUEST,
+        sendingManager.send(e.getOwnerId(), new Packet(PacketCommand.CLIENT_FEEDBACK_REQUEST,
                 PacketCommand.CFR_APDS_ASSIGN, e.getId(), apdsDists, waas));
     }
 
     private void sendPointBlankShotCFR(Entity hidden, Entity target) {
         // Send attacker/target IDs to PBS Client
-        send(hidden.getOwnerId(), new Packet(PacketCommand.CLIENT_FEEDBACK_REQUEST,
+        sendingManager.send(hidden.getOwnerId(), new Packet(PacketCommand.CLIENT_FEEDBACK_REQUEST,
                 PacketCommand.CFR_HIDDEN_PBS, hidden.getId(), target.getId()));
     }
 
     protected void sendTeleguidedMissileCFR(int playerId, List<Integer> targetIds, List<Integer> toHitValues) {
         // Send target id numbers and to-hit values to Client
-        send(playerId, new Packet(PacketCommand.CLIENT_FEEDBACK_REQUEST,
+        sendingManager.send(playerId, new Packet(PacketCommand.CLIENT_FEEDBACK_REQUEST,
                 PacketCommand.CFR_TELEGUIDED_TARGET, targetIds, toHitValues));
     }
 
     protected void sendTAGTargetCFR(int playerId, List<Integer> targetIds, List<Integer> targetTypes) {
         // Send target id numbers and type identifiers to Client
-        send(playerId, new Packet(PacketCommand.CLIENT_FEEDBACK_REQUEST,
+        sendingManager.send(playerId, new Packet(PacketCommand.CLIENT_FEEDBACK_REQUEST,
                 PacketCommand.CFR_TAG_TARGET, targetIds, targetTypes));
     }
 
     private Vector<Report> doEntityDisplacementMinefieldCheck(Entity entity, Coords src,
                                                               Coords dest, int elev) {
         Vector<Report> vPhaseReport = new Vector<>();
-        boolean boom = checkVibrabombs(entity, dest, true, vPhaseReport);
+        boolean boom = minefieldManager.checkVibrabombs(entity, dest, true, vPhaseReport);
         if (game.containsMinefield(dest)) {
-            boom = enterMinefield(entity, dest, elev, true, vPhaseReport) || boom;
+            boom = minefieldManager.enterMinefield(entity, dest, elev, true, vPhaseReport) || boom;
         }
 
         if (boom) {
-            resetMines();
+            minefieldManager.resetMines();
         }
 
         return vPhaseReport;
@@ -9228,8 +8167,8 @@ public class GameManager implements IGameManager {
                 msg += ", Entity was null!";
             }
             LogManager.getLogger().error(msg);
-            send(connId, createTurnVectorPacket());
-            send(connId, createTurnIndexPacket(turn.getPlayerNum()));
+            sendingManager.send(connId, createTurnVectorPacket());
+            sendingManager.send(connId, createTurnIndexPacket(turn.getPlayerNum()));
             return;
         }
 
@@ -9286,13 +8225,13 @@ public class GameManager implements IGameManager {
                 msg += ", Entity was null!";
             }
             LogManager.getLogger().error(msg);
-            send(connId, createTurnVectorPacket());
-            send(connId, createTurnIndexPacket(connId));
+            sendingManager.send(connId, createTurnVectorPacket());
+            sendingManager.send(connId, createTurnIndexPacket(connId));
             return;
         }
 
         // Unload and call entityUpdate
-        unloadUnit(loader, loaded, null, 0, 0, false, true);
+        unitManager.unloadUnit(loader, loaded, null, 0, 0, false, true);
 
         // Need to update the loader
         entityUpdate(loader.getId());
@@ -9304,7 +8243,7 @@ public class GameManager implements IGameManager {
                 loaded.getOwnerId(), loaded.getId()), game.getTurnIndex() - 1);
         //game.insertNextTurn(new GameTurn.SpecificEntityTurn(
         //        loaded.getOwnerId(), loaded.getId()));
-        send(createTurnVectorPacket());
+        sendingManager.send(createTurnVectorPacket());
     }
 
 
@@ -9326,7 +8265,7 @@ public class GameManager implements IGameManager {
                 break;
             }
             // Have the deployed unit load the indicated unit.
-            loadUnit(entity, loaded, loaded.getTargetBay());
+            unitManager.loadUnit(entity, loaded, loaded.getTargetBay());
         }
 
         /*
@@ -9535,7 +8474,7 @@ public class GameManager implements IGameManager {
                     if (team.getId() == teamId) {
                         for (Player teamPlayer : team.players()) {
                             if (teamPlayer.getId() != player.getId()) {
-                                send(teamPlayer.getId(), new Packet(PacketCommand.DEPLOY_MINEFIELDS,
+                                sendingManager.send(teamPlayer.getId(), new Packet(PacketCommand.DEPLOY_MINEFIELDS,
                                         minefields));
                             }
                             teamPlayer.addMinefields(minefields);
@@ -9586,8 +8525,8 @@ public class GameManager implements IGameManager {
                     "Server got invalid packet from Connection %s, Entity %s, %s Turn",
                     connId, ((entity == null) ? "null" : entity.getShortName()),
                     ((turn == null) ? "null" : "invalid")));
-            send(connId, createTurnVectorPacket());
-            send(connId, createTurnIndexPacket((turn == null) ? Player.PLAYER_NONE : turn.getPlayerNum()));
+            sendingManager.send(connId, createTurnVectorPacket());
+            sendingManager.send(connId, createTurnIndexPacket((turn == null) ? Player.PLAYER_NONE : turn.getPlayerNum()));
             return;
         }
 
@@ -9628,8 +8567,8 @@ public class GameManager implements IGameManager {
                     "Server got invalid attack packet from Connection %s, Entity %s, %s Turn",
                     connId, ((entity == null) ? "null" : entity.getShortName()),
                     ((turn == null) ? "null" : "invalid")));
-            send(connId, createTurnVectorPacket());
-            send(connId, createTurnIndexPacket((turn == null) ? Player.PLAYER_NONE : turn.getPlayerNum()));
+            sendingManager.send(connId, createTurnVectorPacket());
+            sendingManager.send(connId, createTurnIndexPacket((turn == null) ? Player.PLAYER_NONE : turn.getPlayerNum()));
             return;
         }
 
@@ -9697,7 +8636,7 @@ public class GameManager implements IGameManager {
                             // immediately after the attack declaration.
                             game.insertNextTurn(new GameTurn.TriggerAPPodTurn(target.getOwnerId(),
                                     target.getId()));
-                            send(createTurnVectorPacket());
+                            sendingManager.send(createTurnVectorPacket());
 
                             // We can stop looking.
                             break;
@@ -9714,7 +8653,7 @@ public class GameManager implements IGameManager {
                             // immediately after the attack declaration.
                             game.insertNextTurn(new GameTurn.TriggerBPodTurn(target.getOwnerId(),
                                     target.getId(), weaponName));
-                            send(createTurnVectorPacket());
+                            sendingManager.send(createTurnVectorPacket());
 
                             // We can stop looking.
                             break;
@@ -9748,7 +8687,7 @@ public class GameManager implements IGameManager {
                     // If defender is able, add a turn to declare counterattack
                     if (!def.isImmobile()) {
                         game.insertNextTurn(new GameTurn.CounterGrappleTurn(def.getOwnerId(), def.getId()));
-                        send(createTurnVectorPacket());
+                        sendingManager.send(createTurnVectorPacket());
                     }
                 }
             }
@@ -9819,7 +8758,7 @@ public class GameManager implements IGameManager {
                 // If we added new hexes, send them to all players.
                 // These are spotlights at night, you know they're there.
                 if (hexesAdded) {
-                    send(createIlluminatedHexesPacket());
+                    sendingManager.send(createIlluminatedHexesPacket());
                 }
             }
         }
@@ -9847,19 +8786,19 @@ public class GameManager implements IGameManager {
         }
         entityUpdate(entity.getId());
 
-        Packet p = createAttackPacket(vector, 0);
+        Packet p = packetManager.createAttackPacket(vector, 0);
         if (getGame().getPhase().isSimultaneous(getGame())) {
             // Update attack only to player who declared it & observers
             for (Player player : game.getPlayersVector()) {
                 if (player.canIgnoreDoubleBlind() || player.isObserver()
                         || (entity.getOwnerId() == player.getId())) {
-                    send(player.getId(), p);
+                    sendingManager.send(player.getId(), p);
                 }
             }
         } else {
             // update all players on the attacks. Don't worry about pushes being
             // a "charge" attack. It doesn't matter to the client.
-            send(p);
+            sendingManager.send(p);
         }
     }
 
@@ -10614,11 +9553,11 @@ public class GameManager implements IGameManager {
         r.add(pos.getBoardNum(), true);
         addReport(r);
 
-        if (clearMinefield(mf, ent, clear, boom, vPhaseReport)) {
-            removeMinefield(mf);
+        if (minefieldManager.clearMinefield(mf, ent, clear, boom, vPhaseReport)) {
+            minefieldManager.removeMinefield(mf);
         }
         // some mines might have blown up
-        resetMines();
+        minefieldManager.resetMines();
 
         addNewLines();
     }
@@ -14216,7 +13155,7 @@ public class GameManager implements IGameManager {
             addReport(damageEntity(te, hit,
                     TeleMissileAttackAction.getDamageFor(ae), false,
                     DamageType.NONE, false, false, throughFront));
-            destroyEntity(ae, "successful attack");
+            packetManager.destroyEntity(ae, "successful attack");
         }
 
     }
@@ -15905,7 +14844,7 @@ public class GameManager implements IGameManager {
         }
     }
 
-    void checkRandomAeroMovement(Entity entity, int hotDogMod) {
+    public void checkRandomAeroMovement(Entity entity, int hotDogMod) {
         if (!entity.isAero()) {
             return;
         }
@@ -16752,8 +15691,8 @@ public class GameManager implements IGameManager {
                 entity.getPosition());
     }
 
-    private Vector<Report> resolvePilotingRolls(Entity entity, boolean moving,
-                                                Coords src, Coords dest) {
+    protected Vector<Report> resolvePilotingRolls(Entity entity, boolean moving,
+                                                  Coords src, Coords dest) {
         Vector<Report> vPhaseReport = new Vector<>();
         // dead and undeployed and offboard units don't need to.
         if (entity.isDoomed() || entity.isDestroyed() || entity.isOffBoard() || !entity.isDeployed()
@@ -17811,7 +16750,7 @@ public class GameManager implements IGameManager {
                             addReport(ejectEntity(en, true, false));
                         }
                     }
-                    vDesc.addAll(destroyEntity((Entity) ship, "fatal damage threshold"));
+                    vDesc.addAll(packetManager.destroyEntity((Entity) ship, "fatal damage threshold"));
                     ship.doDisbandDamage();
                     if (prevAE != Entity.NONE) {
                         creditKill(en, game.getEntity(prevAE));
@@ -18431,7 +17370,7 @@ public class GameManager implements IGameManager {
                             addReport(ejectEntity(te, true, false));
                         }
                     }
-                    vDesc.addAll(destroyEntity(te, "Structural Integrity Collapse"));
+                    vDesc.addAll(packetManager.destroyEntity(te, "Structural Integrity Collapse"));
                     a.doDisbandDamage();
                     a.setCapArmor(0);
                     if (hit.getAttackerId() != Entity.NONE) {
@@ -19084,7 +18023,7 @@ public class GameManager implements IGameManager {
                                 && a.isCondEjectSIDest()))) {
                             vDesc.addAll(ejectEntity(te, true, false));
                         } else {
-                            vDesc.addAll(destroyEntity(te,"Structural Integrity Collapse"));
+                            vDesc.addAll(packetManager.destroyEntity(te, "Structural Integrity Collapse"));
                         }
                         a.setSI(0);
                         if (hit.getAttackerId() != Entity.NONE) {
@@ -19606,7 +18545,7 @@ public class GameManager implements IGameManager {
 
                     if (!engineExploded && (numEngineHits >= hitsToDestroy)) {
                         // third engine hit
-                        vDesc.addAll(destroyEntity(te, "engine destruction"));
+                        vDesc.addAll(packetManager.destroyEntity(te, "engine destruction"));
                         if (game.getOptions()
                                 .booleanOption(OptionsConstants.ADVGRNDMOV_AUTO_ABANDON_UNIT)) {
                             vDesc.addAll(abandonEntity(te));
@@ -19859,7 +18798,7 @@ public class GameManager implements IGameManager {
             if (!hit.isRear()) {
                 facing = (facing + 3) % 6;
             }
-            unloadUnit(te, passenger, position, facing, te.getElevation(), false, false);
+            unitManager.unloadUnit(te, passenger, position, facing, te.getElevation(), false, false);
             Entity violation = Compute.stackingViolation(game,
                     passenger.getId(), position, passenger.climbMode());
             if (violation != null) {
@@ -21012,7 +19951,7 @@ public class GameManager implements IGameManager {
 
                 if (!engineExploded && (numEngineHits >= hitsToDestroy)) {
                     // third engine hit
-                    reports.addAll(destroyEntity(en, "engine destruction"));
+                    reports.addAll(packetManager.destroyEntity(en, "engine destruction"));
                     if (game.getOptions()
                             .booleanOption(OptionsConstants.ADVGRNDMOV_AUTO_ABANDON_UNIT)) {
                         reports.addAll(abandonEntity(en));
@@ -21153,7 +20092,7 @@ public class GameManager implements IGameManager {
                 break;
             case Protomech.SYSTEM_TORSOCRIT:
                 if (3 == numHit) {
-                    reports.addAll(destroyEntity(pm, "torso destruction"));
+                    reports.addAll(packetManager.destroyEntity(pm, "torso destruction"));
                 }
                 // Torso weapon hits are secondary effects and
                 // do not occur when loading from a scenario.
@@ -22919,10 +21858,10 @@ public class GameManager implements IGameManager {
 
         if (game.containsMinefield(crashPos)) {
             // may set off any minefields in the hex
-            enterMinefield(en, crashPos, 0, true, vDesc, 7);
+            minefieldManager.enterMinefield(en, crashPos, 0, true, vDesc, 7);
             // it may also clear any minefields that it detonated
-            clearDetonatedMines(crashPos, 5);
-            resetMines();
+            minefieldManager.clearDetonatedMines(crashPos, 5);
+            minefieldManager.resetMines();
         }
 
         return vDesc;
@@ -23091,7 +22030,7 @@ public class GameManager implements IGameManager {
                 vDesc.addElement(r);
                 if (a.getSI() <= 0) {
                     //No auto-ejection chance here. Nuke would vaporize the pilot.
-                    vDesc.addAll(destroyEntity(a, "Structural Integrity Collapse"));
+                    vDesc.addAll(packetManager.destroyEntity(a, "Structural Integrity Collapse"));
                     a.setSI(0);
                     if (hit.getAttackerId() != Entity.NONE) {
                         creditKill(a, game.getEntity(hit.getAttackerId()));
@@ -23757,14 +22696,14 @@ public class GameManager implements IGameManager {
 
             // Check location for engine/cockpit breach and report accordingly
             if (loc == Mech.LOC_CT) {
-                vDesc.addAll(destroyEntity(entity, "hull breach"));
+                vDesc.addAll(packetManager.destroyEntity(entity, "hull breach"));
                 if (game.getOptions().booleanOption(OptionsConstants.ADVGRNDMOV_AUTO_ABANDON_UNIT)) {
                     vDesc.addAll(abandonEntity(entity));
                 }
             }
             if (loc == Mech.LOC_HEAD) {
                 entity.getCrew().setDoomed(true);
-                vDesc.addAll(destroyEntity(entity, "hull breach"));
+                vDesc.addAll(packetManager.destroyEntity(entity, "hull breach"));
                 if (entity.getLocationStatus(loc) == ILocationExposureStatus.WET) {
                     r = new Report(6355);
                 } else {
@@ -23791,7 +22730,7 @@ public class GameManager implements IGameManager {
                     + entity.getHitCriticals(CriticalSlot.TYPE_SYSTEM, Mech.SYSTEM_ENGINE, Mech.LOC_CT)
                     + entity.getHitCriticals(CriticalSlot.TYPE_SYSTEM, Mech.SYSTEM_ENGINE, Mech.LOC_RT))
                     >= hitsToDestroy) {
-                vDesc.addAll(destroyEntity(entity, "engine destruction"));
+                vDesc.addAll(packetManager.destroyEntity(entity, "engine destruction"));
                 if (game.getOptions().booleanOption(OptionsConstants.ADVGRNDMOV_AUTO_ABANDON_UNIT)) {
                     vDesc.addAll(abandonEntity(entity));
                 }
@@ -23819,7 +22758,7 @@ public class GameManager implements IGameManager {
      * sent to the output log.
      */
     public Vector<Report> destroyEntity(Entity entity, String reason) {
-        return destroyEntity(entity, reason, true);
+        return packetManager.destroyEntity(entity, reason);
     }
 
     /**
@@ -23914,7 +22853,7 @@ public class GameManager implements IGameManager {
                 // We can safely remove these, as they can't be targeted
                 game.removeEntity(mw.getId(), condition);
                 entityUpdate(mw.getId());
-                send(createRemoveEntityPacket(mw.getId(), condition));
+                sendingManager.send(createRemoveEntityPacket(mw.getId(), condition));
                 r = new Report(6370);
                 r.subject = mw.getId();
                 r.addDesc(mw);
@@ -23977,7 +22916,7 @@ public class GameManager implements IGameManager {
                         entity.unload(other);
                         // Safe to remove, as they aren't targeted
                         game.moveToGraveyard(other.getId());
-                        send(createRemoveEntityPacket(other.getId(), condition));
+                        sendingManager.send(createRemoveEntityPacket(other.getId(), condition));
                         r = new Report(6370);
                         r.subject = other.getId();
                         r.addDesc(other);
@@ -23994,14 +22933,14 @@ public class GameManager implements IGameManager {
                         entity.unload(other);
                         // Safe to remove, as they aren't targeted
                         game.moveToGraveyard(other.getId());
-                        send(createRemoveEntityPacket(other.getId(), condition));
+                        sendingManager.send(createRemoveEntityPacket(other.getId(), condition));
                         r = new Report(6375);
                         r.subject = other.getId();
                         r.addDesc(other);
                         vDesc.addElement(r);
                     } else {
                         // The other unit survives.
-                        unloadUnit(entity, other, curPos, curFacing, entity.getElevation(),
+                        unitManager.unloadUnit(entity, other, curPos, curFacing, entity.getElevation(),
                                 true, false);
                     }
                 }
@@ -24013,7 +22952,7 @@ public class GameManager implements IGameManager {
                 Coords curPos = transport.getPosition();
                 int curFacing = transport.getFacing();
                 if (!transport.isLargeCraft()) {
-                    unloadUnit(transport, entity, curPos, curFacing, transport.getElevation());
+                    unitManager.unloadUnit(transport, entity, curPos, curFacing, transport.getElevation());
                 }
                 entityUpdate(transport.getId());
 
@@ -24035,13 +22974,13 @@ public class GameManager implements IGameManager {
                 //Find the first trailer in the list and drop it
                 //this will disconnect all that follow too
                 Entity leadTrailer = game.getEntity(entity.getAllTowedUnits().get(0));
-                disconnectUnit(entity, leadTrailer, entity.getPosition());
+                unitManager.disconnectUnit(entity, leadTrailer, entity.getPosition());
             }
 
             // Is this unit a trailer being towed? If so, disconnect it from its tractor
             if (entity.getTractor() != Entity.NONE) {
                 Entity tractor = game.getEntity(entity.getTractor());
-                disconnectUnit(tractor, entity, tractor.getPosition());
+                unitManager.disconnectUnit(tractor, entity, tractor.getPosition());
             }
 
             // Is this unit being swarmed?
@@ -24348,7 +23287,7 @@ public class GameManager implements IGameManager {
     /**
      * Makes one slot of ammo, determined by certain rules, explode on a mech.
      */
-    Vector<Report> explodeAmmoFromHeat(Entity entity) {
+    public Vector<Report> explodeAmmoFromHeat(Entity entity) {
         int damage = 0;
         int rack = 0;
         int boomloc = -1;
@@ -24790,7 +23729,7 @@ public class GameManager implements IGameManager {
             if (!swarmer.isDone()) {
                 game.removeTurnFor(swarmer);
                 swarmer.setDone(true);
-                send(createTurnVectorPacket());
+                sendingManager.send(createTurnVectorPacket());
             }
         } // End dislodge-infantry
 
@@ -24800,9 +23739,9 @@ public class GameManager implements IGameManager {
 
         // if there is a minefield in this hex, then the mech may set it off
         if (game.containsMinefield(fallPos)
-                && enterMinefield(entity, fallPos, newElevation, true,
+                && minefieldManager.enterMinefield(entity, fallPos, newElevation, true,
                 vPhaseReport, 12)) {
-            resetMines();
+            minefieldManager.resetMines();
         }
         // if we have to, check if the building/bridge we fell on collapses -
         // unless it's a fall into a basement,
@@ -25366,21 +24305,21 @@ public class GameManager implements IGameManager {
             Packet pack = createEntityPacket(nEntityID, movePath);
             for (int x = 0; x < vCanSee.size(); x++) {
                 Player p = vCanSee.elementAt(x);
-                send(p.getId(), pack);
+                sendingManager.send(p.getId(), pack);
             }
             // send an entity delete to everyone else
             pack = createRemoveEntityPacket(nEntityID, eTarget.getRemovalCondition());
             for (int x = 0; x < playersVector.size(); x++) {
                 if (!vCanSee.contains(playersVector.elementAt(x))) {
                     Player p = playersVector.elementAt(x);
-                    send(p.getId(), pack);
+                    sendingManager.send(p.getId(), pack);
                 }
             }
 
             entityUpdateLoadedUnits(eTarget, vCanSee, playersVector);
         } else {
             // But if we're not, then everyone can see.
-            send(createEntityPacket(nEntityID, movePath));
+            sendingManager.send(createEntityPacket(nEntityID, movePath));
         }
     }
 
@@ -25402,14 +24341,14 @@ public class GameManager implements IGameManager {
             Packet pack = createEntityPacket(eLoaded.getId(), null);
             for (int x = 0; x < vCanSee.size(); x++) {
                 Player p = vCanSee.elementAt(x);
-                send(p.getId(), pack);
+                sendingManager.send(p.getId(), pack);
             }
             // send an entity delete to everyone else
             pack = createRemoveEntityPacket(eLoaded.getId(), eLoaded.getRemovalCondition());
             for (int x = 0; x < playersVector.size(); x++) {
                 if (!vCanSee.contains(playersVector.elementAt(x))) {
                     Player p = playersVector.elementAt(x);
-                    send(p.getId(), pack);
+                    sendingManager.send(p.getId(), pack);
                 }
             }
             entityUpdateLoadedUnits(eLoaded, vCanSee, playersVector);
@@ -25587,13 +24526,13 @@ public class GameManager implements IGameManager {
             Vector<Player> playersVector = game.getPlayersVector();
             for (int x = 0; x < playersVector.size(); x++) {
                 Player p = playersVector.elementAt(x);
-                send(p.getId(), createFilteredFullEntitiesPacket(p, null));
+                sendingManager.send(p.getId(), createFilteredFullEntitiesPacket(p, null));
             }
             return;
         }
 
         // Otherwise, send the full list.
-        send(createEntitiesPacket());
+        sendingManager.send(createEntitiesPacket());
     }
 
     /**
@@ -25958,7 +24897,7 @@ public class GameManager implements IGameManager {
                         entity.setDesignValid(false);
                     } else {
                         Player cheater = game.getPlayer(connIndex);
-                        sendServerChat(String.format(
+                        sendingManager.sendServerChat(String.format(
                                 "Player %s attempted to add an illegal unit design (%s), the unit was rejected.",
                                 cheater.getName(), entity.getShortNameRaw()));
                         entities.remove(entity);
@@ -26123,7 +25062,7 @@ public class GameManager implements IGameManager {
 
         List<Integer> changedForces = new ArrayList<>(forceMapping.values());
 
-        send(createAddEntityPacket(entityIds, changedForces));
+        sendingManager.send(createAddEntityPacket(entityIds, changedForces));
     }
 
     /**
@@ -26160,9 +25099,9 @@ public class GameManager implements IGameManager {
             }
         }
         if (!formerCarriers.isEmpty()) {
-            send(new Packet(PacketCommand.ENTITY_MULTIUPDATE, formerCarriers));
+            sendingManager.send(new Packet(PacketCommand.ENTITY_MULTIUPDATE, formerCarriers));
         }
-        send(createAddEntityPacket(fs.getId()));
+        sendingManager.send(createAddEntityPacket(fs.getId()));
     }
 
     /**
@@ -26187,7 +25126,7 @@ public class GameManager implements IGameManager {
             }
             // In the chat lounge, notify players of customizing of unit
             if (game.getPhase().isLounge()) {
-                sendServerChat(ServerLobbyHelper.entityUpdateMessage(entity, game));
+                sendingManager.sendServerChat(ServerLobbyHelper.entityUpdateMessage(entity, game));
             }
         }
     }
@@ -26210,7 +25149,7 @@ public class GameManager implements IGameManager {
             // Only update entities that existed and are owned by a teammate of the sender
             if ((oldEntity != null) && (!oldEntity.getOwner().isEnemyOf(game.getPlayer(connIndex)))) {
                 game.setEntity(entity.getId(), entity);
-                sendServerChat(ServerLobbyHelper.entityUpdateMessage(entity, game));
+                sendingManager.sendServerChat(ServerLobbyHelper.entityUpdateMessage(entity, game));
                 newEntities.add(game.getEntity(entity.getId()));
                 if (entity.isPartOfFighterSquadron()) {
                     // Update the stats of any Squadrons that the new units are part of
@@ -26222,7 +25161,7 @@ public class GameManager implements IGameManager {
                 }
             }
         }
-        send(new Packet(PacketCommand.ENTITY_MULTIUPDATE, newEntities));
+        sendingManager.send(new Packet(PacketCommand.ENTITY_MULTIUPDATE, newEntities));
     }
 
     /**
@@ -26252,7 +25191,7 @@ public class GameManager implements IGameManager {
         // Units that get deleted must not receive updates
         updateCandidates.removeIf(delEntities::contains);
         if (!updateCandidates.isEmpty()) {
-            send(ServerLobbyHelper.createMultiEntityPacket(updateCandidates));
+            sendingManager.send(ServerLobbyHelper.createMultiEntityPacket(updateCandidates));
         }
 
         // Delete entities and forces
@@ -26260,7 +25199,7 @@ public class GameManager implements IGameManager {
             game.removeEntity(entity.getId(), IEntityRemovalConditions.REMOVE_NEVER_JOINED);
         }
         forces.deleteForces(delForces);
-        send(ServerLobbyHelper.createForcesDeletePacket(forceList));
+        sendingManager.send(ServerLobbyHelper.createForcesDeletePacket(forceList));
     }
 
     /**
@@ -26276,7 +25215,7 @@ public class GameManager implements IGameManager {
         Entity loader = getGame().getEntity(loaderId);
 
         if ((loadee != null) && (loader != null)) {
-            loadUnit(loader, loadee, bayNumber);
+            unitManager.loadUnit(loader, loadee, bayNumber);
             // In the chat lounge, notify players of customizing of unit
             if (getGame().getPhase().isLounge()) {
                 ServerLobbyHelper.entityUpdateMessage(loadee, getGame());
@@ -26295,7 +25234,7 @@ public class GameManager implements IGameManager {
         // In the chat lounge, notify players of customizing of unit
         if (game.getPhase().isLounge()) {
             Player p = (Player) c.getObject(0);
-            sendServerChat("" + p.getName() + " has customized initiative.");
+            sendingManager.sendServerChat("" + p.getName() + " has customized initiative.");
         }
     }
 
@@ -26341,14 +25280,14 @@ public class GameManager implements IGameManager {
                     String message = e.getShortName() + ": " + m.getName() + ": " + e.getLocationName(m.getLocation())
                             + " trying to compensate";
                     LogManager.getLogger().error(message);
-                    sendServerChat(message);
+                    sendingManager.sendServerChat(message);
                     e.setGameOptions();
 
                     if (!m.setMode(mode)) {
                         message = e.getShortName() + ": " + m.getName() + ": " + e.getLocationName(m.getLocation())
                                 + " unable to compensate";
                         LogManager.getLogger().error(message);
-                        sendServerChat(message);
+                        sendingManager.sendServerChat(message);
                     }
 
                 }
@@ -26582,7 +25521,7 @@ public class GameManager implements IGameManager {
         // Units that get deleted must not receive updates
         updateCandidates.removeIf(delEntities::contains);
         if (!updateCandidates.isEmpty()) {
-            send(ServerLobbyHelper.createMultiEntityPacket(updateCandidates));
+            sendingManager.send(ServerLobbyHelper.createMultiEntityPacket(updateCandidates));
         }
 
         ArrayList<Force> affectedForces = new ArrayList<>();
@@ -26653,7 +25592,7 @@ public class GameManager implements IGameManager {
 
         // during deployment this absolutely must be called before game.removeEntity(), otherwise the game hangs
         // when a unit is removed. Cause unknown.
-        send(createRemoveEntityPacket(ids, affectedForces, IEntityRemovalConditions.REMOVE_NEVER_JOINED));
+        sendingManager.send(packetManager.createRemoveEntityPacket(ids, affectedForces, IEntityRemovalConditions.REMOVE_NEVER_JOINED));
 
         // Prevents deployment hanging. Only do this during deployment.
         if (game.getPhase().isDeployment()) {
@@ -26687,7 +25626,7 @@ public class GameManager implements IGameManager {
             }
             message.append(" is not allowed to ask for a reroll at this time.");
             LogManager.getLogger().error(message.toString());
-            sendServerChat(message.toString());
+            sendingManager.sendServerChat(message.toString());
             return;
         }
         if (game.hasTacticalGenius(player)) {
@@ -26716,7 +25655,7 @@ public class GameManager implements IGameManager {
 
         // check password
         if (!Server.getServerInstance().passwordMatches(packet.getObject(0))) {
-            sendServerChat(connId, "The password you specified to change game options is incorrect.");
+            sendingManager.sendServerChat(connId, "The password you specified to change game options is incorrect.");
             return false;
         }
 
@@ -26736,7 +25675,7 @@ public class GameManager implements IGameManager {
 
             String message = "Player " + player + " changed option \"" +
                     originalOption.getDisplayableName() + "\" to " + option.getValue().toString() + '.';
-            sendServerChat(message);
+            sendingManager.sendServerChat(message);
             originalOption.setValue(option.getValue());
             changed++;
         }
@@ -26773,7 +25712,7 @@ public class GameManager implements IGameManager {
                     mapSettings.setBoardsAvailableVector(ServerBoardHelper.scanForBoards(mapSettings));
                     mapSettings.removeUnavailable();
                     mapSettings.setNullBoards(DEFAULT_BOARD);
-                    send(createMapSettingsPacket());
+                    sendingManager.send(createMapSettingsPacket());
                 }
             }
         }
@@ -26784,7 +25723,7 @@ public class GameManager implements IGameManager {
      * Sends out the game victory event to all connections
      */
     private void transmitGameVictoryEventToAll() {
-        send(new Packet(PacketCommand.GAME_VICTORY_EVENT));
+        sendingManager.send(new Packet(PacketCommand.GAME_VICTORY_EVENT));
     }
 
     /**
@@ -26899,7 +25838,7 @@ public class GameManager implements IGameManager {
     /**
      * Creates a packet containing all current and out-of-game entities
      */
-    Packet createFullEntitiesPacket() {
+    public Packet createFullEntitiesPacket() {
         return new Packet(PacketCommand.SENDING_ENTITIES, getGame().getEntitiesVector(),
                 getGame().getOutOfGameEntitiesVector(), getGame().getForces());
     }
@@ -26969,7 +25908,7 @@ public class GameManager implements IGameManager {
         List<Integer> ids = new ArrayList<>(1);
         ids.add(entityId);
         Forces forces = getGame().getForces().clone();
-        return createRemoveEntityPacket(ids, forces.removeEntityFromForces(entityId), condition);
+        return packetManager.createRemoveEntityPacket(ids, forces.removeEntityFromForces(entityId), condition);
     }
 
     /**
@@ -26985,18 +25924,8 @@ public class GameManager implements IGameManager {
      * @return A <code>Packet</code> to be sent to clients.
      */
     private Packet createRemoveEntityPacket(List<Integer> entityIds, List<Force> affectedForces, int condition) {
-        if ((condition != IEntityRemovalConditions.REMOVE_UNKNOWN)
-                && (condition != IEntityRemovalConditions.REMOVE_IN_RETREAT)
-                && (condition != IEntityRemovalConditions.REMOVE_PUSHED)
-                && (condition != IEntityRemovalConditions.REMOVE_SALVAGEABLE)
-                && (condition != IEntityRemovalConditions.REMOVE_EJECTED)
-                && (condition != IEntityRemovalConditions.REMOVE_CAPTURED)
-                && (condition != IEntityRemovalConditions.REMOVE_DEVASTATED)
-                && (condition != IEntityRemovalConditions.REMOVE_NEVER_JOINED)) {
-            throw new IllegalArgumentException("Unknown unit condition: " + condition);
-        }
 
-        return new Packet(PacketCommand.ENTITY_REMOVE, entityIds, condition, affectedForces);
+        return packetManager.createRemoveEntityPacket(entityIds, affectedForces, condition);
     }
 
     /**
@@ -27012,7 +25941,7 @@ public class GameManager implements IGameManager {
      */
     private void transmitAllPlayerDones() {
         for (Player player : getGame().getPlayersList()) {
-            send(createPlayerDonePacket(player.getId()));
+            sendingManager.send(createPlayerDonePacket(player.getId()));
         }
     }
 
@@ -27020,32 +25949,32 @@ public class GameManager implements IGameManager {
      * Creates a packet containing a hex, and the coordinates it goes at.
      */
     private Packet createHexChangePacket(Coords coords, Hex hex) {
-        return new Packet(PacketCommand.CHANGE_HEX, coords, hex);
+        return packetManager.createHexChangePacket(coords, hex);
     }
 
     public void sendSmokeCloudAdded(SmokeCloud cloud) {
-        send(new Packet(PacketCommand.ADD_SMOKE_CLOUD, cloud));
+        sendingManager.send(new Packet(PacketCommand.ADD_SMOKE_CLOUD, cloud));
     }
 
     /**
      * Sends notification to clients that the specified hex has changed.
      */
     public void sendChangedHex(Coords coords) {
-        send(createHexChangePacket(coords, game.getBoard().getHex(coords)));
+        sendingManager.send(packetManager.createHexChangePacket(coords, game.getBoard().getHex(coords)));
     }
 
     /**
      * Creates a packet containing a hex, and the coordinates it goes at.
      */
     private Packet createHexesChangePacket(Set<Coords> coords, Set<Hex> hex) {
-        return new Packet(PacketCommand.CHANGE_HEXES, coords, hex);
+        return packetManager.createHexesChangePacket(coords, hex);
     }
 
     /**
      * Sends notification to clients that the specified hex has changed.
      */
     public void sendChangedHexes(Set<Coords> coords) {
-        send(createHexesChangePacket(coords, coords.stream()
+        sendingManager.send(packetManager.createHexesChangePacket(coords, coords.stream()
                 .map(coord -> game.getBoard().getHex(coord))
                 .collect(Collectors.toCollection(LinkedHashSet::new))));
     }
@@ -27061,11 +25990,11 @@ public class GameManager implements IGameManager {
      * Sends notification to clients that the specified hex has changed.
      */
     public void sendChangedMines(Coords coords) {
-        send(createMineChangePacket(coords));
+        sendingManager.send(createMineChangePacket(coords));
     }
 
     public void sendVisibilityIndicator(Entity e) {
-        send(new Packet(PacketCommand.ENTITY_VISIBILITY_INDICATOR, e.getId(), e.isEverSeenByEnemy(),
+        sendingManager.send(new Packet(PacketCommand.ENTITY_VISIBILITY_INDICATOR, e.getId(), e.isEverSeenByEnemy(),
                 e.isVisibleToEnemy(), e.isDetectedByEnemy(), e.getWhoCanSee(), e.getWhoCanDetect()));
     }
 
@@ -27073,16 +26002,14 @@ public class GameManager implements IGameManager {
      * Creates a packet for an attack
      */
     private Packet createAttackPacket(List<?> vector, int charges) {
-        return new Packet(PacketCommand.ENTITY_ATTACK, vector, charges);
+        return packetManager.createAttackPacket(vector, charges);
     }
 
     /**
      * Creates a packet for an attack
      */
     public Packet createAttackPacket(EntityAction ea, int charge) {
-        Vector<EntityAction> vector = new Vector<>(1);
-        vector.addElement(ea);
-        return new Packet(PacketCommand.ENTITY_ATTACK, vector, charge);
+        return packetManager.createAttackPacket(ea, charge);
     }
 
     private Packet createSpecialHexDisplayPacket(int toPlayer) {
@@ -27143,7 +26070,7 @@ public class GameManager implements IGameManager {
      * Send a packet to all connected clients.
      */
     public void sendNovaChange(int id, String net) {
-        send(new Packet(PacketCommand.ENTITY_NOVA_NETWORK_CHANGE, id, net));
+        sendingManager.send(new Packet(PacketCommand.ENTITY_NOVA_NETWORK_CHANGE, id, net));
     }
 
     private void sendReport() {
@@ -27168,7 +26095,7 @@ public class GameManager implements IGameManager {
         }
 
         for (Player p : game.getPlayersVector()) {
-            send(p.getId(), tacticalGeniusReport ? createTacticalGeniusReportPacket(p) : createReportPacket(p));
+            sendingManager.send(p.getId(), tacticalGeniusReport ? createTacticalGeniusReportPacket(p) : createReportPacket(p));
         }
     }
 
@@ -27957,7 +26884,7 @@ public class GameManager implements IGameManager {
             } else {
                 bldg.setCurrentCF(0, coords);
                 bldg.setPhaseCF(0, coords);
-                send(createCollapseBuildingPacket(coords));
+                sendingManager.send(createCollapseBuildingPacket(coords));
                 game.getBoard().collapseBuilding(coords);
             }
 
@@ -27976,7 +26903,7 @@ public class GameManager implements IGameManager {
                 final Entity entity = entities.nextElement();
                 // all gun emplacements are simply destroyed
                 if (entity instanceof GunEmplacement) {
-                    vPhaseReport.addAll(destroyEntity(entity, "building collapse"));
+                    vPhaseReport.addAll(packetManager.destroyEntity(entity, "building collapse"));
                     addNewLines();
                     continue;
                 }
@@ -28070,7 +26997,7 @@ public class GameManager implements IGameManager {
             // Update the building.
             bldg.setCurrentCF(0, coords);
             bldg.setPhaseCF(0, coords);
-            send(createCollapseBuildingPacket(coords));
+            sendingManager.send(createCollapseBuildingPacket(coords));
             game.getBoard().collapseBuilding(coords);
         }
         // if more than half of the hexes are gone, collapse all
@@ -28545,7 +27472,7 @@ public class GameManager implements IGameManager {
     }
 
     public void sendChangedBuildings(Vector<Building> buildings) {
-        send(createUpdateBuildingPacket(buildings));
+        sendingManager.send(createUpdateBuildingPacket(buildings));
     }
 
     /**
@@ -28575,14 +27502,14 @@ public class GameManager implements IGameManager {
             turn = (GameTurn.UnloadStrandedTurn) getGame().getTurn();
         } else {
             LogManager.getLogger().error("Server got unload stranded packet out of sequence");
-            sendServerChat(player.getName() + " should not be sending 'unload stranded entity' packets at this time.");
+            sendingManager.sendServerChat(player.getName() + " should not be sending 'unload stranded entity' packets at this time.");
             return;
         }
 
         // Can this player act right now?
         if (!turn.isValid(connId, getGame())) {
             LogManager.getLogger().error("Server got unload stranded packet from invalid player");
-            sendServerChat(player.getName() + " should not be sending 'unload stranded entity' packets.");
+            sendingManager.sendServerChat(player.getName() + " should not be sending 'unload stranded entity' packets.");
             return;
         }
 
@@ -28595,7 +27522,7 @@ public class GameManager implements IGameManager {
             action = (UnloadStrandedAction) pending.nextElement();
             if (action.getPlayerId() == connId) {
                 LogManager.getLogger().error("Server got multiple unload stranded packets from player");
-                sendServerChat(player.getName() + " should not send multiple 'unload stranded entity' packets.");
+                sendingManager.sendServerChat(player.getName() + " should not send multiple 'unload stranded entity' packets.");
                 return;
             }
             // This player is not from the current connection.
@@ -28620,7 +27547,7 @@ public class GameManager implements IGameManager {
                     message.append(entity.getDisplayName());
                 }
                 message.append(" at this time.");
-                sendServerChat(message.toString());
+                sendingManager.sendServerChat(message.toString());
             } else {
                 foundValid = true;
                 game.addAction(new UnloadStrandedAction(connId, entityIds[index]));
@@ -28664,7 +27591,7 @@ public class GameManager implements IGameManager {
                 } else {
                     // Unload the entity. Get the unit's transporter.
                     Entity transporter = game.getEntity(entity.getTransportId());
-                    unloadUnit(transporter, entity, transporter.getPosition(),
+                    unitManager.unloadUnit(transporter, entity, transporter.getPosition(),
                             transporter.getFacing(), transporter.getElevation());
                 }
             }
@@ -29237,7 +28164,7 @@ public class GameManager implements IGameManager {
             //Pilot flight suits are vacuum-rated. MechWarriors wear shorts...
             pilot.setSpaceSuit(entity.isAero());
             game.addEntity(pilot);
-            send(createAddEntityPacket(pilot.getId()));
+            sendingManager.send(createAddEntityPacket(pilot.getId()));
             // make him not get a move this turn
             pilot.setDone(true);
             int living = 0;
@@ -29279,7 +28206,7 @@ public class GameManager implements IGameManager {
                     vDesc.addElement(r);
                     game.removeEntity(pilot.getId(),
                             IEntityRemovalConditions.REMOVE_IN_RETREAT);
-                    send(createRemoveEntityPacket(pilot.getId(),
+                    sendingManager.send(createRemoveEntityPacket(pilot.getId(),
                             IEntityRemovalConditions.REMOVE_IN_RETREAT));
                     // }
                 }
@@ -29288,7 +28215,7 @@ public class GameManager implements IGameManager {
                         || game.getBoard().inAtmosphere()) {
                     game.removeEntity(pilot.getId(),
                             IEntityRemovalConditions.REMOVE_IN_RETREAT);
-                    send(createRemoveEntityPacket(pilot.getId(),
+                    sendingManager.send(createRemoveEntityPacket(pilot.getId(),
                             IEntityRemovalConditions.REMOVE_IN_RETREAT));
                 }
 
@@ -29347,7 +28274,7 @@ public class GameManager implements IGameManager {
             // Add Entity to game
             game.addEntity(crew);
             // Tell clients about new entity
-            send(createAddEntityPacket(crew.getId()));
+            sendingManager.send(createAddEntityPacket(crew.getId()));
             // Sent entity info to clients
             entityUpdate(crew.getId());
             // Check if the crew lands in a minefield
@@ -29356,7 +28283,7 @@ public class GameManager implements IGameManager {
                     entity.getElevation()));
             if (game.getOptions().booleanOption(OptionsConstants.ADVGRNDMOV_EJECTED_PILOTS_FLEE)) {
                 game.removeEntity(crew.getId(), IEntityRemovalConditions.REMOVE_IN_RETREAT);
-                send(createRemoveEntityPacket(crew.getId(), IEntityRemovalConditions.REMOVE_IN_RETREAT));
+                sendingManager.send(createRemoveEntityPacket(crew.getId(), IEntityRemovalConditions.REMOVE_IN_RETREAT));
             }
         } //End ground vehicles
 
@@ -29371,7 +28298,7 @@ public class GameManager implements IGameManager {
         if (!autoEject) {
             game.removeEntity(entity.getId(),
                     IEntityRemovalConditions.REMOVE_EJECTED);
-            send(createRemoveEntityPacket(entity.getId(),
+            sendingManager.send(createRemoveEntityPacket(entity.getId(),
                     IEntityRemovalConditions.REMOVE_EJECTED));
         }
         return vDesc;
@@ -29510,12 +28437,12 @@ public class GameManager implements IGameManager {
             // No movement this turn
             pods.setDone(true);
             // Tell clients about new entity
-            send(createAddEntityPacket(pods.getId()));
+            sendingManager.send(createAddEntityPacket(pods.getId()));
             // Sent entity info to clients
             entityUpdate(pods.getId());
             if (game.getOptions().booleanOption(OptionsConstants.ADVGRNDMOV_EJECTED_PILOTS_FLEE)) {
                 game.removeEntity(pods.getId(), IEntityRemovalConditions.REMOVE_IN_RETREAT);
-                send(createRemoveEntityPacket(pods.getId(), IEntityRemovalConditions.REMOVE_IN_RETREAT));
+                sendingManager.send(createRemoveEntityPacket(pods.getId(), IEntityRemovalConditions.REMOVE_IN_RETREAT));
             }
         } // End Escape Pod/Lifeboat Ejection
         else {
@@ -29601,7 +28528,7 @@ public class GameManager implements IGameManager {
             // No movement this turn
             crew.setDone(true);
             // Tell clients about new entity
-            send(createAddEntityPacket(crew.getId()));
+            sendingManager.send(createAddEntityPacket(crew.getId()));
             // Sent entity info to clients
             entityUpdate(crew.getId());
             // Check if the crew lands in a minefield
@@ -29609,7 +28536,7 @@ public class GameManager implements IGameManager {
                     entity.getPosition(), entity.getElevation()));
             if (game.getOptions().booleanOption(OptionsConstants.ADVGRNDMOV_EJECTED_PILOTS_FLEE)) {
                 game.removeEntity(crew.getId(), IEntityRemovalConditions.REMOVE_IN_RETREAT);
-                send(createRemoveEntityPacket(crew.getId(), IEntityRemovalConditions.REMOVE_IN_RETREAT));
+                sendingManager.send(createRemoveEntityPacket(crew.getId(), IEntityRemovalConditions.REMOVE_IN_RETREAT));
             }
         }
         // If we get here, end movement and return the report
@@ -29773,7 +28700,7 @@ public class GameManager implements IGameManager {
                         break;
                     }
                 }
-                send(createAddEntityPacket(guerrilla.getId()));
+                sendingManager.send(createAddEntityPacket(guerrilla.getId()));
                 ((Infantry) e).setIsCallingSupport(false);
                 /*
                 // Update the entity
@@ -29838,7 +28765,7 @@ public class GameManager implements IGameManager {
                 pilot.setNextVelocity(entity.getVelocity());
             }
             game.addEntity(pilot);
-            send(createAddEntityPacket(pilot.getId()));
+            sendingManager.send(createAddEntityPacket(pilot.getId()));
             // make him not get a move this turn
             pilot.setDone(true);
             // Add the pilot as an infantry unit on the battlefield.
@@ -29853,7 +28780,7 @@ public class GameManager implements IGameManager {
                     targetCoords, entity.getElevation()));
             if (game.getOptions().booleanOption(OptionsConstants.ADVGRNDMOV_EJECTED_PILOTS_FLEE)) {
                 game.removeEntity(pilot.getId(), IEntityRemovalConditions.REMOVE_IN_RETREAT);
-                send(createRemoveEntityPacket(pilot.getId(),
+                sendingManager.send(createRemoveEntityPacket(pilot.getId(),
                         IEntityRemovalConditions.REMOVE_IN_RETREAT));
             }
         } // End entity-is-Mek or Aero
@@ -29868,7 +28795,7 @@ public class GameManager implements IGameManager {
             crew.setDeployed(true);
             crew.setId(game.getNextEntityId());
             game.addEntity(crew);
-            send(createAddEntityPacket(crew.getId()));
+            sendingManager.send(createAddEntityPacket(crew.getId()));
             // Make them not get a move this turn
             crew.setDone(true);
             // Place on board
@@ -29882,7 +28809,7 @@ public class GameManager implements IGameManager {
                     entity.getPosition(), entity.getElevation()));
             if (game.getOptions().booleanOption(OptionsConstants.ADVGRNDMOV_EJECTED_PILOTS_FLEE)) {
                 game.removeEntity(crew.getId(), IEntityRemovalConditions.REMOVE_IN_RETREAT);
-                send(createRemoveEntityPacket(crew.getId(), IEntityRemovalConditions.REMOVE_IN_RETREAT));
+                sendingManager.send(createRemoveEntityPacket(crew.getId(), IEntityRemovalConditions.REMOVE_IN_RETREAT));
             }
         }
 
@@ -30604,7 +29531,7 @@ public class GameManager implements IGameManager {
      * @param eruption <code>boolean</code> indicating whether or not this is because
      *                 of an eruption
      */
-    void doMagmaDamage(Entity en, boolean eruption) {
+    public void doMagmaDamage(Entity en, boolean eruption) {
         if ((((en.getMovementMode() == EntityMovementMode.VTOL) && (en.getElevation() > 0))
                 || (en.getMovementMode() == EntityMovementMode.HOVER)
                 || ((en.getMovementMode() == EntityMovementMode.WIGE)
@@ -30687,7 +29614,7 @@ public class GameManager implements IGameManager {
         en.setElevation(en.getElevation() - 1);
         // if this means the entity is below the ground, then bye-bye!
         if (Math.abs(en.getElevation()) > en.getHeight()) {
-            addReport(destroyEntity(en, "quicksand"));
+            addReport(packetManager.destroyEntity(en, "quicksand"));
         }
     }
 
@@ -30811,7 +29738,8 @@ public class GameManager implements IGameManager {
             AreaEffectHelper.artilleryDamageEntity(entity, damage, bldg, bldgAbsorbs,
                     variableDamage, asfFlak, flak, altitude,
                     attackSource, ammo, coords, isFuelAirBomb,
-                    killer, hex, subjectId, vPhaseReport, this);
+                    killer, hex, subjectId, vPhaseReport,
+                    this);
         }
 
         return alreadyHit;

@@ -16,6 +16,8 @@ package megamek.server;
 
 import java.util.Iterator;
 import java.util.Vector;
+import megamek.server.manager.GameManager;
+
 
 import megamek.common.*;
 

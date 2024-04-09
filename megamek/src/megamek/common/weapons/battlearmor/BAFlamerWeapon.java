@@ -21,7 +21,7 @@ import megamek.common.actions.WeaponAttackAction;
 import megamek.common.weapons.AttackHandler;
 import megamek.common.weapons.FlamerHandler;
 import megamek.common.weapons.Weapon;
-import megamek.server.GameManager;
+import megamek.server.manager.GameManager;
 
 /**
  * @author Andrew Hunter

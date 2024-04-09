@@ -20,8 +20,7 @@ import megamek.common.RangeType;
 import megamek.common.ToHitData;
 import megamek.common.WeaponType;
 import megamek.common.actions.WeaponAttackAction;
-import megamek.server.GameManager;
-import megamek.server.Server;
+import megamek.server.manager.GameManager;
 
 /**
  * @author Jay Lawson

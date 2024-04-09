@@ -15,7 +15,7 @@ package megamek.server.commands;
 
 import megamek.common.Player;
 import megamek.common.options.OptionsConstants;
-import megamek.server.GameManager;
+import megamek.server.manager.GameManager;
 import megamek.server.Server;
 
 /**

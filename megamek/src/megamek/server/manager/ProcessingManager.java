@@ -1,4 +1,4 @@
-package megamek.server;
+package megamek.server.manager;
 
 import megamek.MMConstants;
 import megamek.common.*;
@@ -6,6 +6,9 @@ import megamek.common.actions.*;
 import megamek.common.net.enums.PacketCommand;
 import megamek.common.options.OptionsConstants;
 import megamek.common.planetaryconditions.PlanetaryConditions;
+import megamek.server.Server;
+import megamek.server.ServerHelper;
+import megamek.server.SmokeCloud;
 import org.apache.logging.log4j.LogManager;
 
 import java.util.*;

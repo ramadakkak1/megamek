@@ -81,6 +81,10 @@ public final class Player extends TurnOrdered {
     private int initialEntityCount;
     private int initialBV;
 
+
+    private Integer elo;
+    private String ip;
+
     // initiative bonuses go here because we don't know if teams are rolling
     // initiative collectively
     // if they are then we pick the best non-zero bonuses
@@ -118,6 +122,37 @@ public final class Player extends TurnOrdered {
         for (int i = 0; i < minefields.size(); i++) {
             visibleMinefields.addElement(minefields.elementAt(i));
         }
+    }
+    /**
+     * Définit le score Elo du joueur.
+     * @param elo Le score Elo à définir.
+     */
+    public void setElo(Integer elo) {
+        this.elo = elo;
+    }
+
+    /**
+     * Récupère le score Elo du joueur.
+     * @return Le score Elo du joueur.
+     */
+    public Integer getElo() {
+        return elo;
+    }
+
+    /**
+     * Définit l'adresse IP du joueur.
+     * @param ip L'adresse IP à définir.
+     */
+    public void setIp(String ip) {
+        this.ip = ip;
+    }
+
+    /**
+     * Récupère l'adresse IP du joueur.
+     * @return L'adresse IP du joueur.
+     */
+    public String getIp() {
+        return ip;
     }
 
     public void removeMinefield(Minefield mf) {
